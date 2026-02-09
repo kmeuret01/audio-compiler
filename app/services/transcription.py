@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-import requests
+import httpx
 
 from app.config import Settings
 
@@ -44,13 +44,13 @@ async def transcribe(file_path: str, settings: Settings, language: Optional[str]
             if language:
                 data["language"] = language
 
-            resp = requests.post(
-                WHISPER_URL,
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                files=files,
-                data=data,
-                timeout=settings.whisper_timeout,
-            )
+            async with httpx.AsyncClient(timeout=settings.whisper_timeout) as client:
+                resp = await client.post(
+                    WHISPER_URL,
+                    headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                    files=files,
+                    data=data,
+                )
 
         if resp.status_code != 200:
             return {"success": False, "transcript": "", "duration_seconds": duration,
@@ -66,7 +66,7 @@ async def transcribe(file_path: str, settings: Settings, language: Optional[str]
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }
 
-    except requests.Timeout:
+    except httpx.TimeoutException:
         return {"success": False, "transcript": "", "duration_seconds": duration,
                 "word_count": 0, "error": f"Whisper API timed out after {settings.whisper_timeout}s"}
     except Exception as e:

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import requests
+import httpx
 
 from app.config import Settings
 from app.database import Database
@@ -24,29 +24,29 @@ from app.services.pdf_generator import (
 
 # ── LLM Caller ──────────────────────────────────────────────────────
 
-def _call_openai(
+async def _call_openai(
     system: str,
     user_content: str,
     settings: Settings,
     max_tokens: int = 2000,
 ) -> dict:
     """Call OpenAI chat completion. Returns {"text": str, "usage": dict}."""
-    resp = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {settings.openai_api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": settings.llm_model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ],
-            "max_tokens": max_tokens,
-        },
-        timeout=settings.llm_timeout,
-    )
+    async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
+        resp = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.llm_model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_content},
+                ],
+                "max_tokens": max_tokens,
+            },
+        )
     resp.raise_for_status()
     data = resp.json()
     return {
@@ -85,7 +85,7 @@ async def _stage_2_metadata(transcript: str, settings: Settings) -> dict:
         "If a name is mentioned as the subject of discussion (not present), note them as "
         '"[Name] (discussed, not present)". List the speaker/narrator if identifiable.'
     )
-    result = _call_openai(system, f"Transcript:\n\n{transcript}", settings)
+    result = await _call_openai(system, f"Transcript:\n\n{transcript}", settings)
     raw = _strip_code_fences(result["text"])
     try:
         parsed = json.loads(raw)
@@ -144,7 +144,7 @@ IMPORTANT:
 - Be detailed and thorough - capture the substance of discussions
 - Typically identify 6-12 distinct topics from a meeting"""
 
-    result = _call_openai(system, f"Transcript:\n\n{transcript}", settings, max_tokens=4000)
+    result = await _call_openai(system, f"Transcript:\n\n{transcript}", settings, max_tokens=4000)
     return {"text": result["text"], "usage": result["usage"]}
 
 
@@ -155,7 +155,7 @@ async def _stage_4_actions(transcript: str, settings: Settings) -> dict:
         "Return ONLY valid JSON: an array of objects with keys: "
         '"task" (string), "assignee" (string or null), "deadline" (string or null), "priority" (high/medium/low).'
     )
-    result = _call_openai(system, f"Transcript:\n\n{transcript}", settings)
+    result = await _call_openai(system, f"Transcript:\n\n{transcript}", settings)
     raw = _strip_code_fences(result["text"])
     try:
         parsed = json.loads(raw)
@@ -177,7 +177,7 @@ async def _stage_5_summary(transcript: str, settings: Settings) -> dict:
         "Include: Purpose of the Meeting, Key Outcomes, and Next Steps. "
         "Keep it under 300 words."
     )
-    result = _call_openai(system, f"Transcript:\n\n{transcript}", settings)
+    result = await _call_openai(system, f"Transcript:\n\n{transcript}", settings)
     return {"text": result["text"], "usage": result["usage"]}
 
 
@@ -212,7 +212,7 @@ ACTION ITEMS:
 
 Please review these against meeting documentation best practices."""
 
-    result = _call_openai(system, user_content, settings, max_tokens=500)
+    result = await _call_openai(system, user_content, settings, max_tokens=500)
     return {"text": result["text"], "usage": result["usage"]}
 
 
