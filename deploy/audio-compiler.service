@@ -1,0 +1,16 @@
+[Unit]
+Description=ROI Logistics Audio Compiler Module
+After=network.target
+
+[Service]
+Type=simple
+User=clawdbot
+Group=clawdbot
+WorkingDirectory=/home/clawdbot/audio-compiler
+EnvironmentFile=/home/clawdbot/audio-compiler/.env
+ExecStart=/home/clawdbot/audio-compiler/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8150
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
