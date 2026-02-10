@@ -20,86 +20,120 @@ log = logging.getLogger("audio-compiler.output")
 def extract_bluf(executive_summary: str) -> str:
     """
     Extract 2-4 sentence bottom line from executive summary.
-    Takes the first paragraph or first 3 sentences.
+    Parses the LLM output format which uses **Section:** headers.
     """
     if not executive_summary:
         return "No summary available."
 
-    # Remove markdown headers
+    # Parse sections from the executive summary
+    # Format: **Purpose of the Meeting:**\n\nContent...\n\n**Key Outcomes:**...
+    sections = {}
+    current_section = None
+    current_content = []
+
     lines = executive_summary.strip().split('\n')
-    content_lines = [l for l in lines if not l.strip().startswith('#')]
-    text = ' '.join(content_lines).strip()
+    for line in lines:
+        stripped = line.strip()
 
-    # Remove markdown bold/italic
-    text = re.sub(r'\*+([^*]+)\*+', r'\1', text)
+        # Check for section header (bold with colon)
+        section_match = re.match(r'^\*{0,2}([^*:]+):\*{0,2}\s*$', stripped)
+        if section_match:
+            # Save previous section
+            if current_section and current_content:
+                sections[current_section.lower()] = ' '.join(current_content).strip()
+            current_section = section_match.group(1).strip()
+            current_content = []
+            continue
 
-    # Split into sentences
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+        # Skip empty lines and markdown artifacts
+        if stripped and not stripped.startswith('#'):
+            # Remove markdown formatting
+            clean = re.sub(r'\*+([^*]+)\*+', r'\1', stripped)
+            # Remove numbered list prefixes for cleaner text
+            clean = re.sub(r'^\d+\.\s*', '', clean)
+            if clean:
+                current_content.append(clean)
 
-    # Take first 3 sentences or ~300 chars
-    bluf_sentences = []
-    char_count = 0
-    for s in sentences[:4]:
-        if char_count + len(s) > 400 and bluf_sentences:
-            break
-        bluf_sentences.append(s)
-        char_count += len(s)
+    # Save last section
+    if current_section and current_content:
+        sections[current_section.lower()] = ' '.join(current_content).strip()
 
-    return ' '.join(bluf_sentences) if bluf_sentences else text[:400]
+    # Build BLUF from Purpose section primarily
+    bluf_parts = []
+
+    # Get purpose/overview
+    purpose = sections.get('purpose of the meeting', sections.get('purpose', sections.get('overview', '')))
+    if purpose:
+        # Take first 2 sentences
+        purpose_sentences = re.split(r'(?<=[.!?])\s+', purpose)
+        bluf_parts.extend(purpose_sentences[:2])
+
+    # If we have key outcomes, add the first one
+    outcomes = sections.get('key outcomes', sections.get('outcomes', ''))
+    if outcomes and len(bluf_parts) < 3:
+        outcome_sentences = re.split(r'(?<=[.!?])\s+', outcomes)
+        if outcome_sentences:
+            bluf_parts.append(outcome_sentences[0])
+
+    if bluf_parts:
+        return ' '.join(bluf_parts)
+
+    # Fallback: take first substantive content
+    all_content = ' '.join(sections.values()) if sections else executive_summary
+    all_content = re.sub(r'\*+([^*]+)\*+', r'\1', all_content)
+    sentences = re.split(r'(?<=[.!?])\s+', all_content)
+    return ' '.join(sentences[:3]) if sentences else all_content[:400]
 
 
 def extract_decisions(meeting_notes: str) -> List[str]:
     """
-    Extract key decisions from meeting notes markdown.
-    Looks for decision language and dedicated sections.
+    Extract key decisions from meeting notes.
+    The LLM format uses "Conclusion:" lines after each topic section.
     """
     if not meeting_notes:
         return []
 
     decisions = []
 
-    # Decision indicator patterns
-    decision_patterns = [
-        r'(?:decided|agreed|will|going to|confirmed|approved|selected|chose|committed)\s+(?:to\s+)?(.{20,150}?)(?:\.|$)',
-        r'(?:decision|conclusion|agreement|commitment):\s*(.{20,150}?)(?:\.|$)',
-    ]
+    # Primary pattern: "Conclusion:" lines which contain the key decisions
+    # Format: "Conclusion: Establish a defined project overview and checkpoints..."
+    conclusion_pattern = r'Conclusion:\s*(.+?)(?:\n|$)'
+    matches = re.findall(conclusion_pattern, meeting_notes, re.MULTILINE)
+    for match in matches:
+        clean = match.strip()
+        # Remove any trailing punctuation artifacts
+        clean = clean.rstrip('.')
+        if clean and len(clean) > 20:
+            decisions.append(clean + '.')
 
-    # Look for explicit decision sections
-    lines = meeting_notes.split('\n')
-    in_decision_section = False
+    # If no Conclusion lines found, try recommendations section
+    if not decisions:
+        lines = meeting_notes.split('\n')
+        in_recommendations = False
 
-    for line in lines:
-        stripped = line.strip()
+        for line in lines:
+            stripped = line.strip()
 
-        # Check for decision section headers
-        if re.match(r'^#+\s*(?:decisions?|conclusions?|agreements?|key\s+decisions?)', stripped, re.I):
-            in_decision_section = True
-            continue
+            # Check for recommendations section
+            if stripped.lower() == 'recommendations':
+                in_recommendations = True
+                continue
 
-        # Exit section on new header
-        if stripped.startswith('#') and in_decision_section:
-            in_decision_section = False
+            # Exit on next section
+            if stripped.lower() in ('next arrangements', 'action items', 'topic title:') or stripped.startswith('Topic Title:'):
+                in_recommendations = False
 
-        # Capture bullet points in decision sections
-        if in_decision_section and (stripped.startswith('-') or stripped.startswith('•')):
-            decision_text = stripped.lstrip('-•').strip()
-            decision_text = re.sub(r'\*+([^*]+)\*+', r'\1', decision_text)  # Remove markdown
-            if len(decision_text) > 15:
-                decisions.append(decision_text)
+            # Capture bullet points in recommendations
+            if in_recommendations and stripped.startswith('-'):
+                decision_text = stripped.lstrip('- ').strip()
+                if decision_text and len(decision_text) > 15:
+                    decisions.append(decision_text)
 
-    # Also scan for decision language patterns
-    for pattern in decision_patterns:
-        matches = re.findall(pattern, meeting_notes, re.I | re.MULTILINE)
-        for match in matches:
-            clean = re.sub(r'\*+([^*]+)\*+', r'\1', match.strip())
-            if clean and len(clean) > 15 and clean not in decisions:
-                decisions.append(clean)
-
-    # Dedupe and limit
+    # Dedupe by checking lowercase versions
     seen = set()
     unique = []
     for d in decisions:
-        d_lower = d.lower()
+        d_lower = d.lower()[:50]  # Check first 50 chars for similarity
         if d_lower not in seen:
             seen.add(d_lower)
             unique.append(d)
@@ -189,6 +223,7 @@ def structure_execution_steps(action_items: str) -> List[dict]:
 def structure_topic_blocks(meeting_notes: str) -> List[dict]:
     """
     Parse meeting notes into DISCUSSED/DECIDED/NEXT blocks per topic.
+    The LLM format uses "Topic Title:" lines followed by paragraphs and "Conclusion:" lines.
     Returns: [{title, discussed, decided, next_steps}, ...]
     """
     if not meeting_notes:
@@ -196,54 +231,54 @@ def structure_topic_blocks(meeting_notes: str) -> List[dict]:
 
     topics = []
     current_topic = None
+    current_paragraphs = []
 
     lines = meeting_notes.split('\n')
 
     for line in lines:
         stripped = line.strip()
 
-        # Check for topic headers (## or ### in markdown)
-        header_match = re.match(r'^#{2,3}\s+(.+)$', stripped)
-        if header_match:
+        # Check for "Topic Title:" format
+        topic_match = re.match(r'^Topic Title:\s*(.+)$', stripped)
+        if topic_match:
             # Save previous topic
-            if current_topic and current_topic.get('discussed'):
-                topics.append(current_topic)
+            if current_topic:
+                current_topic['discussed'] = ' '.join(current_paragraphs).strip()
+                if current_topic['discussed'] or current_topic['decided']:
+                    topics.append(current_topic)
 
             current_topic = {
-                'title': header_match.group(1).strip('*# '),
+                'title': topic_match.group(1).strip(),
                 'discussed': '',
                 'decided': '',
                 'next_steps': '',
             }
+            current_paragraphs = []
             continue
 
-        if not current_topic:
+        # Check for "Conclusion:" line - this is the decision
+        conclusion_match = re.match(r'^Conclusion:\s*(.+)$', stripped)
+        if conclusion_match and current_topic:
+            current_topic['decided'] = conclusion_match.group(1).strip()
             continue
 
-        # Classify content
-        clean_line = re.sub(r'\*+([^*]+)\*+', r'\1', stripped)
+        # Check for "Next Arrangements" section - stop processing topics
+        if stripped.lower() == 'next arrangements':
+            break
 
-        # Decision language
-        if re.search(r'\b(decided|agreed|confirmed|approved|will|going to)\b', clean_line, re.I):
-            if current_topic['decided']:
-                current_topic['decided'] += ' '
-            current_topic['decided'] += clean_line
+        # Check for "Recommendations" section - stop processing topics
+        if stripped.lower() == 'recommendations':
+            break
 
-        # Future action language
-        elif re.search(r'\b(next|follow[- ]?up|action|todo|schedule|plan to|need to)\b', clean_line, re.I):
-            if current_topic['next_steps']:
-                current_topic['next_steps'] += ' '
-            current_topic['next_steps'] += clean_line
-
-        # General discussion
-        elif clean_line and not clean_line.startswith('#'):
-            if current_topic['discussed']:
-                current_topic['discussed'] += ' '
-            current_topic['discussed'] += clean_line
+        # Add content paragraphs to current topic
+        if current_topic and stripped and not stripped.startswith('['):
+            current_paragraphs.append(stripped)
 
     # Don't forget the last topic
-    if current_topic and current_topic.get('discussed'):
-        topics.append(current_topic)
+    if current_topic:
+        current_topic['discussed'] = ' '.join(current_paragraphs).strip()
+        if current_topic['discussed'] or current_topic['decided']:
+            topics.append(current_topic)
 
     return topics[:10]  # Limit to 10 topics
 
@@ -384,12 +419,22 @@ def generate_all_outputs(
     action_items = compilation_data.get('action_items', '')
     executive_summary = compilation_data.get('executive_summary', '')
 
-    # Metadata fields
-    title = metadata.get('title', metadata.get('meeting_type', 'Meeting'))
+    # Metadata fields - derive title from source filename if not provided
+    source_filename = metadata.get('source_filename', 'audio.mp3')
+    raw_title = metadata.get('title', metadata.get('meeting_type', ''))
+
+    # If no title, derive from source filename
+    if not raw_title or raw_title == 'Meeting':
+        # Extract from filename: "Marketing-magnet-kickoff.mp3" -> "Marketing Magnet Kickoff"
+        name_part = source_filename.rsplit('.', 1)[0]  # Remove extension
+        # Replace hyphens/underscores with spaces and title case
+        title = name_part.replace('-', ' ').replace('_', ' ').title()
+    else:
+        title = raw_title
+
     date = metadata.get('date', 'Unknown Date')
     attendees = metadata.get('attendees', [])
     duration = metadata.get('duration', metadata.get('estimated_duration', 'Unknown'))
-    source_filename = metadata.get('source_filename', 'audio.mp3')
 
     # Transform data
     bluf = extract_bluf(executive_summary)
