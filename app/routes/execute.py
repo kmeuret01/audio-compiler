@@ -1,7 +1,7 @@
-"""Execute endpoint — runs compile_audio or transcribe_only."""
+"""Execute endpoint — enqueues compile_audio or runs transcribe_only."""
 
 import logging
-import traceback
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from app.auth import verify_token
 from app.services.file_handler import validate_audio_file
-from app.services.compiler import compile_audio
 from app.services.transcription import transcribe
 from app.tracing import run_stage
 
@@ -23,6 +22,9 @@ class ExecuteParams(BaseModel):
     audio_path: str
     language: Optional[str] = None
     overrides: Optional[dict] = None
+    submitter_email: Optional[str] = ""
+    submitter_name: Optional[str] = ""
+    priority: Optional[int] = 0
 
 
 class ExecuteRequest(BaseModel):
@@ -38,6 +40,7 @@ class ExecuteRequest(BaseModel):
 async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(verify_token)):
     db = request.app.state.db
     settings = request.app.state.settings
+    queue_manager = request.app.state.queue_manager
 
     # Validate task
     if body.task not in ("compile_audio", "transcribe_only"):
@@ -57,6 +60,7 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
     audio_format = Path(body.params.audio_path).suffix.lower()
 
     if body.task == "compile_audio":
+        # Create job record
         job_id = db.create_job(
             task="compile_audio",
             request_id=body.request_id,
@@ -64,22 +68,35 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
             audio_path=body.params.audio_path,
             audio_format=audio_format,
         )
+
+        # Get file size for duration estimation
         try:
-            result = await compile_audio(
+            file_size = os.path.getsize(body.params.audio_path)
+        except OSError:
+            file_size = 0
+
+        # Enqueue instead of processing inline
+        try:
+            queue_result = await queue_manager.enqueue_job(
                 job_id=job_id,
                 audio_path=body.params.audio_path,
-                db=db,
-                settings=settings,
-                overrides=body.params.overrides,
+                submitter_email=body.params.submitter_email or "",
+                submitter_name=body.params.submitter_name or "",
+                file_size_bytes=file_size,
+                priority=body.params.priority or 0,
             )
+
             return {
                 "success": True,
                 "job_id": job_id,
                 "request_id": body.request_id,
-                "result": result,
+                "queued": True,
+                "queue_position": queue_result["queue_position"],
+                "estimated_wait_seconds": queue_result["estimated_wait_seconds"],
+                "message": queue_result["message"],
             }
         except Exception as e:
-            log.error("compile_audio failed for job %s: %s", job_id, e, exc_info=True)
+            log.error("Failed to enqueue job %s: %s", job_id, e, exc_info=True)
             return {
                 "success": False,
                 "job_id": job_id,
@@ -88,6 +105,7 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
             }
 
     elif body.task == "transcribe_only":
+        # transcribe_only still runs inline (it's fast)
         job_id = db.create_job(
             task="transcribe_only",
             request_id=body.request_id,
