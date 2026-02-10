@@ -40,7 +40,7 @@ async def transcribe(file_path: str, settings: Settings, language: Optional[str]
     try:
         with open(path, "rb") as f:
             files = {"file": (path.name, f, "application/octet-stream")}
-            data = {"model": settings.whisper_model, "response_format": "text"}
+            data = {"model": settings.whisper_model, "response_format": "verbose_json"}
             if language:
                 data["language"] = language
 
@@ -54,14 +54,22 @@ async def transcribe(file_path: str, settings: Settings, language: Optional[str]
 
         if resp.status_code != 200:
             return {"success": False, "transcript": "", "duration_seconds": duration,
-                    "word_count": 0, "error": f"Whisper API error: {resp.status_code} - {resp.text}"}
+                    "word_count": 0, "segments": [], "error": f"Whisper API error: {resp.status_code} - {resp.text}"}
 
-        transcript = resp.text.strip()
+        result_json = resp.json()
+        transcript = result_json.get("text", "").strip()
+        # Extract segments with timestamps: [{start, end, text}, ...]
+        segments = result_json.get("segments", [])
+        # Use Whisper's reported duration if we didn't get one from ffprobe
+        if not duration and result_json.get("duration"):
+            duration = result_json["duration"]
+
         return {
             "success": True,
             "transcript": transcript,
             "duration_seconds": duration,
             "word_count": len(transcript.split()),
+            "segments": segments,
             "error": None,
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }

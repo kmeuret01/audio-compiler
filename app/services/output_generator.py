@@ -283,10 +283,25 @@ def structure_topic_blocks(meeting_notes: str) -> List[dict]:
     return topics[:10]  # Limit to 10 topics
 
 
-def chapter_transcript(transcript: str, meeting_notes: str = "") -> List[dict]:
+def _format_timestamp(seconds: float) -> str:
+    """Format seconds into MM:SS or H:MM:SS."""
+    seconds = int(seconds)
+    if seconds >= 3600:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        return f"{h}:{m:02d}:{s:02d}"
+    m = seconds // 60
+    s = seconds % 60
+    return f"{m}:{s:02d}"
+
+
+def chapter_transcript(transcript: str, meeting_notes: str = "", segments: list = None) -> List[dict]:
     """
-    Break transcript into topic chapters.
-    Simple heuristic: use paragraph breaks and keyword shifts.
+    Break transcript into time-blocked chapters using Whisper segments.
+
+    If segments with timestamps are available, groups them into ~2-3 minute blocks.
+    Falls back to paragraph-based chunking if no segments.
 
     Returns: [{number, title, timestamp, utterances: [{speaker, timestamp, text}]}]
     """
@@ -298,12 +313,61 @@ def chapter_transcript(transcript: str, meeting_notes: str = "") -> List[dict]:
             'utterances': [{'speaker': '', 'timestamp': '', 'text': 'No transcript available.'}]
         }]
 
-    # For now, use simple paragraph-based chunking
-    # Future improvement: use topic headers from meeting_notes to align
+    # If we have Whisper segments with timestamps, use them
+    if segments and len(segments) > 0:
+        BLOCK_SECONDS = 150  # ~2.5 minute blocks
 
+        chapters = []
+        chapter_num = 1
+        current_utterances = []
+        block_start = 0.0
+
+        for seg in segments:
+            seg_start = seg.get('start', 0.0)
+            seg_text = seg.get('text', '').strip()
+            if not seg_text:
+                continue
+
+            current_utterances.append({
+                'speaker': '',
+                'timestamp': _format_timestamp(seg_start),
+                'text': seg_text,
+            })
+
+            # Start new block if we've exceeded the time window
+            if (seg_start - block_start) >= BLOCK_SECONDS:
+                # Bundle current utterances into a chapter
+                chapter_ts = _format_timestamp(block_start)
+                chapters.append({
+                    'number': chapter_num,
+                    'title': f"Section {chapter_num}",
+                    'timestamp': chapter_ts,
+                    'utterances': current_utterances,
+                })
+                current_utterances = []
+                chapter_num += 1
+                block_start = seg_start
+
+        # Final chapter with remaining utterances
+        if current_utterances:
+            chapter_ts = _format_timestamp(block_start)
+            chapters.append({
+                'number': chapter_num,
+                'title': f"Section {chapter_num}",
+                'timestamp': chapter_ts,
+                'utterances': current_utterances,
+            })
+
+        return chapters if chapters else [{
+            'number': 1,
+            'title': 'Full Transcript',
+            'timestamp': '',
+            'utterances': [{'speaker': '', 'timestamp': '', 'text': transcript}]
+        }]
+
+    # Fallback: paragraph-based chunking (no timestamps available)
     paragraphs = transcript.split('\n\n')
 
-    # If transcript is short, return as single chapter
     if len(paragraphs) <= 3:
         return [{
             'number': 1,
@@ -312,7 +376,6 @@ def chapter_transcript(transcript: str, meeting_notes: str = "") -> List[dict]:
             'utterances': [{'speaker': '', 'timestamp': '', 'text': transcript}]
         }]
 
-    # Group into chapters of ~3-5 paragraphs each
     chapters = []
     chapter_num = 1
     current_utterances = []
@@ -328,20 +391,10 @@ def chapter_transcript(transcript: str, meeting_notes: str = "") -> List[dict]:
             'text': para,
         })
 
-        # Create new chapter every 4 paragraphs or at end
         if len(current_utterances) >= 4 or i == len(paragraphs) - 1:
-            # Try to extract a topic from the first paragraph
-            first_text = current_utterances[0]['text'][:100]
-            title = f"Section {chapter_num}"
-
-            # Look for potential topic indicators
-            topic_match = re.search(r'(?:discuss|talk about|regarding|about|topic:?)\s+([^.]{10,50})', first_text, re.I)
-            if topic_match:
-                title = topic_match.group(1).strip()
-
             chapters.append({
                 'number': chapter_num,
-                'title': title,
+                'title': f"Section {chapter_num}",
                 'timestamp': '',
                 'utterances': current_utterances,
             })
@@ -414,6 +467,7 @@ def generate_all_outputs(
 
     # Extract data
     transcript = compilation_data.get('transcript', '')
+    segments = compilation_data.get('segments', [])
     metadata = compilation_data.get('metadata', {})
     meeting_notes = compilation_data.get('meeting_notes', '')
     action_items = compilation_data.get('action_items', '')
@@ -442,7 +496,7 @@ def generate_all_outputs(
     execution_steps = structure_execution_steps(action_items)
     topics = structure_topic_blocks(meeting_notes)
     context_items = extract_context_items(metadata, meeting_notes)
-    chapters = chapter_transcript(transcript, meeting_notes)
+    chapters = chapter_transcript(transcript, meeting_notes, segments)
 
     # Generate Executive Brief PDF
     try:
