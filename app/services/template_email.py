@@ -73,9 +73,18 @@ def generate_email_body(
         for step in execution_steps:
             step_num = step.get('num', '0')
             step_title = step.get('title', '')
-            step_summary = step.get('summary', '')
+            step_items = step.get('items', [])
 
             num_color = COLORS["accent"] if str(step_num) == "0" else COLORS["dark_gray"]
+
+            # Build items list
+            items_html = ""
+            if step_items:
+                items_list = "".join([
+                    f'<li style="margin-bottom: 4px; color: {COLORS["dark_gray"]}; font-size: 13px;">{item}</li>'
+                    for item in step_items[:5]  # Limit to 5 items per step
+                ])
+                items_html = f'<ul style="font-family: {FONT_STACK}; margin: 6px 0 0 0; padding-left: 18px;">{items_list}</ul>'
 
             steps_rows += f"""
             <tr>
@@ -84,8 +93,7 @@ def generate_email_body(
                 </td>
                 <td style="padding: 8px 12px; vertical-align: top;">
                     <strong style="font-family: {FONT_STACK}; font-size: 14px; color: {COLORS["black"]};">{step_title}</strong>
-                    <br>
-                    <span style="font-family: {FONT_STACK}; font-size: 13px; color: {COLORS["mid_gray"]};">{step_summary}</span>
+                    {items_html}
                 </td>
             </tr>
             """
