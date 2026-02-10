@@ -15,11 +15,7 @@ from app.config import Settings
 from app.database import Database
 from app.tracing import run_stage
 from app.services.transcription import transcribe
-from app.services.pdf_generator import (
-    generate_meeting_notes_pdf,
-    generate_action_items_pdf,
-    generate_transcript_pdf,
-)
+from app.services.output_generator import generate_all_outputs
 
 
 # ── LLM Caller ──────────────────────────────────────────────────────
@@ -216,28 +212,36 @@ Please review these against meeting documentation best practices."""
     return {"text": result["text"], "usage": result["usage"]}
 
 
-async def _stage_7_pdfs(
+async def _stage_7_outputs(
     output_dir: Path,
     filename: str,
     notes: str,
     action_items: str,
     transcript: str,
+    summary: str,
     metadata: dict,
 ) -> dict:
-    """Stage 7: Generate branded PDFs."""
-    notes_pdf = output_dir / "meeting_notes.pdf"
-    generate_meeting_notes_pdf(notes, filename, notes_pdf, metadata)
+    """Stage 7: Generate AI Labs branded outputs (PDFs, DOCX, email HTML)."""
+    # Add source filename to metadata
+    metadata_with_source = {**metadata, 'source_filename': filename}
 
-    items_pdf = output_dir / "action_items.pdf"
-    generate_action_items_pdf(action_items, filename, items_pdf, metadata)
-
-    transcript_pdf = output_dir / "transcript.pdf"
-    generate_transcript_pdf(transcript, filename, transcript_pdf, metadata)
+    outputs = generate_all_outputs(
+        job_id="",  # Not needed for output generation
+        output_dir=str(output_dir),
+        compilation_data={
+            'transcript': transcript,
+            'metadata': metadata_with_source,
+            'meeting_notes': notes,
+            'action_items': action_items,
+            'executive_summary': summary,
+        }
+    )
 
     return {
-        "meeting_notes_pdf": str(notes_pdf),
-        "action_items_pdf": str(items_pdf),
-        "transcript_pdf": str(transcript_pdf),
+        "executive_brief_pdf": outputs.get('executive_brief_pdf'),
+        "full_debrief_docx": outputs.get('full_debrief_docx'),
+        "transcript_pdf": outputs.get('transcript_pdf'),
+        "email_body_html": outputs.get('email_body_html'),
     }
 
 
@@ -347,11 +351,11 @@ async def compile_audio(
     review_path = output_dir / "quality_review.json"
     review_path.write_text(json.dumps({"review": review}, indent=2), encoding="utf-8")
 
-    # Stage 7: PDFs
-    pdf_result = await run_stage(
-        job_id, "stage_7_pdf", db, _stage_7_pdfs,
-        output_dir, filename, notes, action_items, transcript, metadata_clean,
-        input_summary="Generating 3 branded PDFs",
+    # Stage 7: AI Labs branded outputs (PDFs, DOCX, email HTML)
+    output_result = await run_stage(
+        job_id, "stage_7_outputs", db, _stage_7_outputs,
+        output_dir, filename, notes, action_items, transcript, summary, metadata_clean,
+        input_summary="Generating AI Labs branded outputs (3 files + email HTML)",
     )
 
     total_ms = int((time.monotonic() - start) * 1000)
@@ -374,10 +378,11 @@ async def compile_audio(
             "action_items": str(items_path),
             "summary": str(summary_path),
             "quality_review": str(review_path),
-            "meeting_notes_pdf": pdf_result["meeting_notes_pdf"],
-            "action_items_pdf": pdf_result["action_items_pdf"],
-            "transcript_pdf": pdf_result["transcript_pdf"],
+            "executive_brief_pdf": output_result.get("executive_brief_pdf"),
+            "full_debrief_docx": output_result.get("full_debrief_docx"),
+            "transcript_pdf": output_result.get("transcript_pdf"),
         },
         "summary_text": summary,
+        "email_body_html": output_result.get("email_body_html"),
         "metadata": metadata_clean,
     }
