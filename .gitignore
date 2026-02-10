@@ -3,8 +3,12 @@ __pycache__/
 .env
 venv/
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 output/
 uploads/
 *.egg-info/
 dist/
 build/
+FULL_CODEBASE_DUMP.txt
