@@ -1,0 +1,20 @@
+[Unit]
+Description=Audio Compiler Notification Service
+After=network.target audio-compiler.service
+
+[Service]
+Type=simple
+User=clawdbot
+Group=clawdbot
+WorkingDirectory=/home/clawdbot/audio-compiler
+EnvironmentFile=/home/clawdbot/audio-compiler/.env
+ExecStart=/home/clawdbot/audio-compiler/venv/bin/python3 notifier.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=COMPILER_DB=/home/clawdbot/audio-compiler/compiler.db
+Environment=GOG_BIN=/usr/local/bin/gog
+Environment=GOG_ACCOUNT=rob@roilogistics.ai
+
+[Install]
+WantedBy=multi-user.target

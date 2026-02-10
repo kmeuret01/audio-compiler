@@ -45,7 +45,12 @@ class Database:
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 completed_at TEXT,
-                total_duration_ms INTEGER
+                total_duration_ms INTEGER,
+                -- Notification tracking columns
+                notification_status TEXT DEFAULT 'pending',
+                notification_attempts INTEGER DEFAULT 0,
+                notification_error TEXT,
+                thread_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS job_stages (
@@ -93,12 +98,13 @@ class Database:
         company_id: str = "roi-logistics",
         audio_path: str = "",
         audio_format: str = "",
+        thread_id: str = "",
     ) -> str:
         job_id = str(uuid4())[:12]
         self._conn().execute(
-            "INSERT INTO jobs (job_id, request_id, company_id, task, status, audio_path, audio_format, created_at) "
-            "VALUES (?, ?, ?, ?, 'received', ?, ?, ?)",
-            (job_id, request_id, company_id, task, audio_path, audio_format, _now()),
+            "INSERT INTO jobs (job_id, request_id, company_id, task, status, audio_path, audio_format, created_at, thread_id) "
+            "VALUES (?, ?, ?, ?, 'received', ?, ?, ?, ?)",
+            (job_id, request_id, company_id, task, audio_path, audio_format, _now(), thread_id),
         )
         self._conn().commit()
         return job_id
@@ -127,6 +133,58 @@ class Database:
             (_now(), error, job_id),
         )
         self._conn().commit()
+
+    # ── Notification Tracking ──────────────────────────────────────────
+
+    def get_pending_notifications(self, limit: int = 10) -> list:
+        """Get completed jobs that haven't been notified yet."""
+        cursor = self._conn().execute("""
+            SELECT job_id, output_dir, submitter_email, submitter_name, thread_id
+            FROM jobs
+            WHERE status = 'completed'
+              AND notification_status = 'pending'
+              AND submitter_email IS NOT NULL
+              AND submitter_email != ''
+            ORDER BY completed_at ASC
+            LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def mark_notification_sent(self, job_id: str) -> None:
+        """Mark a job's notification as successfully sent."""
+        self._conn().execute(
+            "UPDATE jobs SET notification_status='sent' WHERE job_id=?",
+            (job_id,),
+        )
+        self._conn().commit()
+
+    def mark_notification_failed(self, job_id: str, error: str) -> None:
+        """Record a failed notification attempt."""
+        self._conn().execute("""
+            UPDATE jobs SET
+                notification_attempts = notification_attempts + 1,
+                notification_error = ?,
+                notification_status = CASE
+                    WHEN notification_attempts >= 2 THEN 'failed'
+                    ELSE 'pending'
+                END
+            WHERE job_id = ?
+        """, (error, job_id))
+        self._conn().commit()
+
+    def get_failed_jobs_for_notification(self, limit: int = 10) -> list:
+        """Get failed jobs that haven't been notified yet."""
+        cursor = self._conn().execute("""
+            SELECT job_id, error, submitter_email, submitter_name, thread_id
+            FROM jobs
+            WHERE status = 'failed'
+              AND notification_status = 'pending'
+              AND submitter_email IS NOT NULL
+              AND submitter_email != ''
+            ORDER BY completed_at ASC
+            LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
 
     def get_job(self, job_id: str) -> Optional[dict]:
         row = self._conn().execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()

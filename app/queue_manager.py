@@ -47,6 +47,11 @@ def migrate_database(db_path: str):
         "submitter_email": "TEXT",
         "submitter_name": "TEXT",
         "file_size_bytes": "INTEGER",
+        # Notification tracking columns
+        "notification_status": "TEXT DEFAULT 'pending'",
+        "notification_attempts": "INTEGER DEFAULT 0",
+        "notification_error": "TEXT",
+        "thread_id": "TEXT",
     }
 
     for col_name, col_def in new_columns.items():
@@ -86,6 +91,10 @@ class QueueManager:
         self.TRANSCRIPTION_SPEED_RATIO = 0.1
         self.OVERHEAD_SECONDS = 60
 
+        # Rate limiting: minimum gap between jobs to respect OpenAI rate limits
+        self.JOB_SPACING_SECONDS = 30
+        self._last_job_end = 0
+
     async def startup(self):
         """Call this on FastAPI startup event."""
         migrate_database(self.db_path)
@@ -124,6 +133,7 @@ class QueueManager:
         submitter_name: str = "",
         file_size_bytes: int = 0,
         priority: int = 0,
+        thread_id: str = "",
     ) -> dict:
         """Add a job to the queue. Returns immediately with queue position."""
         now = datetime.now(timezone.utc).isoformat()
@@ -140,7 +150,8 @@ class QueueManager:
                 estimated_duration_seconds = ?,
                 submitter_email = ?,
                 submitter_name = ?,
-                file_size_bytes = ?
+                file_size_bytes = ?,
+                thread_id = ?
             WHERE job_id = ?
         """, (
             JobStatus.QUEUED.value,
@@ -150,6 +161,7 @@ class QueueManager:
             submitter_email,
             submitter_name,
             file_size_bytes,
+            thread_id,
             job_id,
         ))
 
@@ -180,8 +192,17 @@ class QueueManager:
     async def _worker_loop(self):
         """Single worker that processes one job at a time."""
         logger.info("Worker loop started.")
+        import time
 
         while not self._shutdown_event.is_set():
+            # Enforce minimum spacing between jobs to respect rate limits
+            if self._last_job_end > 0:
+                elapsed = time.time() - self._last_job_end
+                if elapsed < self.JOB_SPACING_SECONDS:
+                    wait_time = self.JOB_SPACING_SECONDS - elapsed
+                    logger.info(f"Rate limit spacing: waiting {wait_time:.1f}s before next job")
+                    await asyncio.sleep(wait_time)
+
             job = self._get_next_job()
 
             if job is None:
@@ -214,6 +235,8 @@ class QueueManager:
                 logger.exception(f"Job {job_id} failed with exception: {e}")
                 self._handle_job_failure(job_id, str(e))
 
+            # Record job end time for rate limiting
+            self._last_job_end = time.time()
             await asyncio.sleep(1)
 
         logger.info("Worker loop exiting (shutdown signal received).")

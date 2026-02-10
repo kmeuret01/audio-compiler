@@ -25,6 +25,7 @@ class ExecuteParams(BaseModel):
     submitter_email: Optional[str] = ""
     submitter_name: Optional[str] = ""
     priority: Optional[int] = 0
+    thread_id: Optional[str] = ""  # Gmail thread ID for reply-in-thread
 
 
 class ExecuteRequest(BaseModel):
@@ -67,6 +68,7 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
             company_id=body.company_id,
             audio_path=body.params.audio_path,
             audio_format=audio_format,
+            thread_id=body.params.thread_id or "",
         )
 
         # Get file size for duration estimation
@@ -84,6 +86,7 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
                 submitter_name=body.params.submitter_name or "",
                 file_size_bytes=file_size,
                 priority=body.params.priority or 0,
+                thread_id=body.params.thread_id or "",
             )
 
             return {
