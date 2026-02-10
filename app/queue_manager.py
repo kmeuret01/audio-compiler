@@ -30,9 +30,20 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
+def _wal_connect(db_path: str) -> sqlite3.Connection:
+    """Open a SQLite connection with WAL mode to match the Database class.
+
+    All connections to compiler.db MUST use WAL mode. Mixing journal modes
+    (WAL vs default/delete) causes 'database disk image is malformed' errors.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
 def migrate_database(db_path: str):
     """Add queue management columns to the existing jobs table."""
-    conn = sqlite3.connect(db_path)
+    conn = _wal_connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute("PRAGMA table_info(jobs)")
@@ -139,7 +150,7 @@ class QueueManager:
         now = datetime.now(timezone.utc).isoformat()
         estimated_duration = self._estimate_duration(file_size_bytes)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -243,7 +254,7 @@ class QueueManager:
 
     def _handle_job_failure(self, job_id: str, error_message: str):
         """Handle a failed job — retry if under max_retries, otherwise mark failed."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute(
@@ -299,7 +310,7 @@ class QueueManager:
 
     def _recover_stale_jobs(self):
         """On startup, find and re-queue jobs that were mid-processing when service died."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         # Find jobs stuck in processing state
@@ -339,7 +350,7 @@ class QueueManager:
 
     def get_queue_status(self) -> dict:
         """Returns full queue state for the /queue endpoint."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
@@ -416,7 +427,7 @@ class QueueManager:
 
     def get_job_status(self, job_id: str) -> Optional[dict]:
         """Get detailed status of a specific job."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
@@ -445,7 +456,7 @@ class QueueManager:
 
     def set_priority(self, job_id: str, priority: int) -> bool:
         """Change a queued job's priority."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute(
@@ -462,7 +473,7 @@ class QueueManager:
 
     def cancel_job(self, job_id: str) -> bool:
         """Cancel a QUEUED job."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute(
@@ -480,7 +491,7 @@ class QueueManager:
 
     def _get_next_job(self) -> Optional[tuple]:
         """Get the next job to process."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -496,7 +507,7 @@ class QueueManager:
 
     def _update_job_status(self, job_id: str, status: str):
         """Update job status."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         if status == JobStatus.PROCESSING.value:
@@ -514,7 +525,7 @@ class QueueManager:
         conn.close()
 
     def _count_queued_jobs(self) -> int:
-        conn = sqlite3.connect(self.db_path)
+        conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = ?", (JobStatus.QUEUED.value,))
         count = cursor.fetchone()[0]

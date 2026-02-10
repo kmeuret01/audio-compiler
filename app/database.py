@@ -88,6 +88,28 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_feedback_job ON feedback(job_id);
         """)
         conn.commit()
+        self._migrate_columns(conn)
+
+    def _migrate_columns(self, conn: sqlite3.Connection) -> None:
+        """Add columns that CREATE TABLE IF NOT EXISTS can't add to existing tables."""
+        cursor = conn.execute("PRAGMA table_info(jobs)")
+        existing = {row[1] for row in cursor.fetchall()}
+
+        migrations = {
+            "notification_status": "TEXT DEFAULT 'pending'",
+            "notification_attempts": "INTEGER DEFAULT 0",
+            "notification_error": "TEXT",
+            "thread_id": "TEXT",
+        }
+
+        for col_name, col_def in migrations.items():
+            if col_name not in existing:
+                try:
+                    conn.execute(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_def}")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists from a concurrent migration
+
+        conn.commit()
 
     # ── Jobs ──────────────────────────────────────────────────────────
 

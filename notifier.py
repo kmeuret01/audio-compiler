@@ -74,9 +74,20 @@ def gog_env() -> dict:
     }
 
 
+def _wal_connect(db_path: str) -> sqlite3.Connection:
+    """Open a SQLite connection with WAL mode to match the compiler's Database class.
+
+    All connections to compiler.db MUST use WAL mode. Mixing journal modes
+    causes 'database disk image is malformed' errors.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
 def get_pending_notifications(db_path: str, limit: int = 10) -> list:
     """Get completed jobs that haven't been notified."""
-    conn = sqlite3.connect(db_path)
+    conn = _wal_connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("""
         SELECT job_id, output_dir, submitter_email, submitter_name, thread_id
@@ -95,7 +106,7 @@ def get_pending_notifications(db_path: str, limit: int = 10) -> list:
 
 def get_failed_jobs_for_notification(db_path: str, limit: int = 10) -> list:
     """Get failed jobs that haven't been notified."""
-    conn = sqlite3.connect(db_path)
+    conn = _wal_connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("""
         SELECT job_id, error, submitter_email, submitter_name, thread_id
@@ -114,7 +125,7 @@ def get_failed_jobs_for_notification(db_path: str, limit: int = 10) -> list:
 
 def mark_notification_sent(db_path: str, job_id: str) -> None:
     """Mark a job's notification as successfully sent."""
-    conn = sqlite3.connect(db_path)
+    conn = _wal_connect(db_path)
     conn.execute(
         "UPDATE jobs SET notification_status='sent' WHERE job_id=?",
         (job_id,),
@@ -125,7 +136,7 @@ def mark_notification_sent(db_path: str, job_id: str) -> None:
 
 def mark_notification_failed(db_path: str, job_id: str, error: str) -> None:
     """Record a failed notification attempt."""
-    conn = sqlite3.connect(db_path)
+    conn = _wal_connect(db_path)
     conn.execute("""
         UPDATE jobs SET
             notification_attempts = notification_attempts + 1,
