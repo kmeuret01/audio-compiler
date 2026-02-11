@@ -27,7 +27,7 @@ from typing import Optional
 # Configuration
 POLL_INTERVAL_SECONDS = 30
 DB_PATH = os.environ.get("COMPILER_DB", "/home/clawdbot/audio-compiler/compiler.db")
-GOG_BIN = os.environ.get("GOG_BIN", "/usr/local/bin/gog")
+GOG_BIN = os.environ.get("GOG_BIN", "/home/clawdbot/homebrew/bin/gog")
 GOG_ACCOUNT = os.environ.get("GOG_ACCOUNT", "rob@roilogistics.ai")
 LOG_FILE = os.environ.get("NOTIFIER_LOG", "/var/log/audio-notifier.log")
 
@@ -224,10 +224,6 @@ def send_completion_email(
     # Build email body
     email_body = build_completion_email_body(job, output_dir)
 
-    # Write body to temp file for gog
-    body_file = output_dir / "notification_email.html"
-    body_file.write_text(email_body, encoding="utf-8")
-
     # Collect attachments (PDFs and DOCX)
     attachments = []
     for pattern in ["*.pdf", "*.docx"]:
@@ -255,15 +251,14 @@ def send_completion_email(
         GOG_BIN, "gmail", "send",
         "--to", email,
         "--subject", "Your Meeting Debrief is Ready",
-        "--body-file", str(body_file),
-        "--html",
+        "--body-html", email_body,
         "--account", GOG_ACCOUNT,
         "--no-input",
     ]
 
     # Add thread for reply-in-thread
     if thread_id:
-        cmd.extend(["--thread", thread_id])
+        cmd.extend(["--thread-id", thread_id])
 
     # Add attachments
     for att in attachments:
@@ -305,17 +300,10 @@ def send_failure_email(
 
     email_body = build_failure_email_body(job)
 
-    # Write body to temp file
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
-        f.write(email_body)
-        body_file = f.name
-
     log.info("Job %s (failed): sending notification to %s", job_id, email)
 
     if dry_run:
         log.info("[DRY RUN] Would send failure notification to %s", email)
-        os.unlink(body_file)
         return True
 
     # Build gog command
@@ -323,14 +311,13 @@ def send_failure_email(
         GOG_BIN, "gmail", "send",
         "--to", email,
         "--subject", "Issue Processing Your Audio File",
-        "--body-file", body_file,
-        "--html",
+        "--body-html", email_body,
         "--account", GOG_ACCOUNT,
         "--no-input",
     ]
 
     if thread_id:
-        cmd.extend(["--thread", thread_id])
+        cmd.extend(["--thread-id", thread_id])
 
     try:
         result = subprocess.run(
@@ -341,8 +328,6 @@ def send_failure_email(
             timeout=60,
         )
 
-        os.unlink(body_file)
-
         if result.returncode != 0:
             log.error("Job %s: gog send failed: %s", job_id, result.stderr)
             return False
@@ -352,14 +337,9 @@ def send_failure_email(
 
     except subprocess.TimeoutExpired:
         log.error("Job %s: gog send timed out", job_id)
-        os.unlink(body_file)
         return False
     except Exception as e:
         log.exception("Job %s: unexpected error: %s", job_id, e)
-        try:
-            os.unlink(body_file)
-        except:
-            pass
         return False
 
 
