@@ -257,6 +257,7 @@ async def _stage_7_outputs(
     summary: str,
     metadata: dict,
     segments: list = None,
+    tier: str = "advanced",
 ) -> dict:
     """Stage 7: Generate AI Labs branded outputs (PDFs, DOCX, email HTML)."""
     # Add source filename to metadata
@@ -272,7 +273,8 @@ async def _stage_7_outputs(
             'meeting_notes': notes,
             'action_items': action_items,
             'executive_summary': summary,
-        }
+        },
+        tier=tier,
     )
 
     return {
@@ -391,10 +393,11 @@ async def compile_audio(
     review_path.write_text(json.dumps({"review": review}, indent=2), encoding="utf-8")
 
     # Stage 7: AI Labs branded outputs (PDFs, DOCX, email HTML)
+    tier = overrides.get("tier", "advanced")
     output_result = await run_stage(
         job_id, "stage_7_outputs", db, _stage_7_outputs,
-        output_dir, filename, notes, action_items, transcript, summary, metadata_clean, segments,
-        input_summary="Generating AI Labs branded outputs (3 files + email HTML)",
+        output_dir, filename, notes, action_items, transcript, summary, metadata_clean, segments, tier,
+        input_summary=f"Generating outputs (tier={tier})",
     )
 
     total_ms = int((time.monotonic() - start) * 1000)
@@ -420,7 +423,12 @@ async def compile_audio(
             "executive_brief_pdf": output_result.get("executive_brief_pdf"),
             "full_debrief_docx": output_result.get("full_debrief_docx"),
             "transcript_pdf": output_result.get("transcript_pdf"),
+            "subtitles_srt": output_result.get("subtitles_srt"),
+            "subtitles_vtt": output_result.get("subtitles_vtt"),
+            "notion_export": output_result.get("notion_export"),
+            "confluence_export": output_result.get("confluence_export"),
         },
+        "tier": tier,
         "summary_text": summary,
         "email_body_html": output_result.get("email_body_html"),
         "metadata": metadata_clean,

@@ -443,9 +443,17 @@ def generate_all_outputs(
     job_id: str,
     output_dir: str,
     compilation_data: dict,
+    tier: str = "advanced",
 ) -> dict:
     """
-    Generate all output files from compilation data.
+    Generate output files from compilation data based on selected tier.
+
+    Tiers:
+        basic:      transcript.txt, summary.md, metadata.json
+        advanced:   basic + meeting_notes.md, action_items.json, executive_brief.pdf,
+                    email_body.html, SRT/VTT subtitles, Notion/Confluence export
+        enterprise: advanced + full_debrief.docx, transcript.pdf, quality_review.json
+                    (Gamma presentation + MEDDPICC analysis handled by marketing shed)
 
     Args:
         job_id: The job identifier
@@ -456,10 +464,16 @@ def generate_all_outputs(
             - meeting_notes: str (structured notes from LLM)
             - action_items: str (JSON array or text of action items)
             - executive_summary: str (summary from LLM)
+        tier: Output tier — basic, advanced, enterprise (default: advanced)
 
     Returns:
         Dict of output file paths and email body HTML
     """
+    # Normalize tier
+    tier = tier.lower() if tier else "advanced"
+    if tier not in ("basic", "advanced", "enterprise"):
+        tier = "advanced"
+    log.info("Generating outputs for tier: %s", tier)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -498,100 +512,188 @@ def generate_all_outputs(
     context_items = extract_context_items(metadata, meeting_notes)
     chapters = chapter_transcript(transcript, meeting_notes, segments)
 
-    # Generate Executive Brief PDF
-    try:
-        from app.services.template_executive_brief import generate_executive_brief
+    # ── ADVANCED + ENTERPRISE: Executive Brief PDF ─────────────────────────
+    if tier in ("advanced", "enterprise"):
+        try:
+            from app.services.template_executive_brief import generate_executive_brief
 
-        brief_path = str(output_path / "executive_brief.pdf")
-        generate_executive_brief(
-            output_path=brief_path,
-            title=title,
-            date=date,
-            attendees=attendees,
-            duration=duration,
-            bluf=bluf,
-            decisions=decisions,
-            execution_steps=execution_steps,
-            context_items=context_items,
-        )
-        results['executive_brief_pdf'] = brief_path
-        log.info(f"Generated executive brief: {brief_path}")
-    except Exception as e:
-        log.error(f"Failed to generate executive brief: {e}", exc_info=True)
-        results['executive_brief_pdf'] = None
-
-    # Generate Full Debrief DOCX
-    try:
-        from app.services.template_debrief import generate_debrief
-
-        debrief_path = str(output_path / "full_debrief.docx")
-        generate_debrief(
-            output_path=debrief_path,
-            title=title,
-            date=date,
-            attendees=attendees,
-            duration=duration,
-            bluf=bluf,
-            topics=topics,
-            execution_steps=execution_steps,
-        )
-        results['full_debrief_docx'] = debrief_path
-        log.info(f"Generated full debrief: {debrief_path}")
-    except Exception as e:
-        log.error(f"Failed to generate debrief DOCX: {e}", exc_info=True)
-        results['full_debrief_docx'] = None
-
-    # Generate Transcript PDF
-    try:
-        from app.services.template_transcript import generate_transcript, generate_simple_transcript
-
-        transcript_path = str(output_path / "transcript.pdf")
-
-        if chapters and len(chapters) > 1:
-            generate_transcript(
-                output_path=transcript_path,
+            brief_path = str(output_path / "executive_brief.pdf")
+            generate_executive_brief(
+                output_path=brief_path,
                 title=title,
                 date=date,
                 attendees=attendees,
-                source_filename=source_filename,
-                chapters=chapters,
+                duration=duration,
+                bluf=bluf,
+                decisions=decisions,
+                execution_steps=execution_steps,
+                context_items=context_items,
             )
-        else:
-            generate_simple_transcript(
-                output_path=transcript_path,
+            results['executive_brief_pdf'] = brief_path
+            log.info(f"Generated executive brief: {brief_path}")
+        except Exception as e:
+            log.error(f"Failed to generate executive brief: {e}", exc_info=True)
+            results['executive_brief_pdf'] = None
+
+    # ── ENTERPRISE ONLY: Full Debrief DOCX ───────────────────────────────
+    if tier == "enterprise":
+        try:
+            from app.services.template_debrief import generate_debrief
+
+            debrief_path = str(output_path / "full_debrief.docx")
+            generate_debrief(
+                output_path=debrief_path,
                 title=title,
                 date=date,
                 attendees=attendees,
-                source_filename=source_filename,
-                transcript_text=transcript,
+                duration=duration,
+                bluf=bluf,
+                topics=topics,
+                execution_steps=execution_steps,
             )
-        results['transcript_pdf'] = transcript_path
-        log.info(f"Generated transcript: {transcript_path}")
-    except Exception as e:
-        log.error(f"Failed to generate transcript PDF: {e}", exc_info=True)
-        results['transcript_pdf'] = None
+            results['full_debrief_docx'] = debrief_path
+            log.info(f"Generated full debrief: {debrief_path}")
+        except Exception as e:
+            log.error(f"Failed to generate debrief DOCX: {e}", exc_info=True)
+            results['full_debrief_docx'] = None
 
-    # Generate Email Body HTML
-    try:
-        from app.services.template_email import generate_email_body
+    # ── ENTERPRISE ONLY: Transcript PDF ──────────────────────────────────
+    if tier == "enterprise":
+        try:
+            from app.services.template_transcript import generate_transcript, generate_simple_transcript
 
-        email_html = generate_email_body(
-            title=title,
-            date=date,
-            attendees=attendees,
-            duration=duration,
-            bluf=bluf,
-            decisions=decisions,
-            execution_steps=execution_steps,
-        )
-        results['email_body_html'] = email_html
+            transcript_path = str(output_path / "transcript.pdf")
 
-        # Also save to file for debugging
-        email_path = output_path / "email_body.html"
-        email_path.write_text(email_html, encoding='utf-8')
-        log.info(f"Generated email body HTML")
-    except Exception as e:
-        log.error(f"Failed to generate email HTML: {e}", exc_info=True)
-        results['email_body_html'] = None
+            if chapters and len(chapters) > 1:
+                generate_transcript(
+                    output_path=transcript_path,
+                    title=title,
+                    date=date,
+                    attendees=attendees,
+                    source_filename=source_filename,
+                    chapters=chapters,
+                )
+            else:
+                generate_simple_transcript(
+                    output_path=transcript_path,
+                    title=title,
+                    date=date,
+                    attendees=attendees,
+                    source_filename=source_filename,
+                    transcript_text=transcript,
+                )
+            results['transcript_pdf'] = transcript_path
+            log.info(f"Generated transcript: {transcript_path}")
+        except Exception as e:
+            log.error(f"Failed to generate transcript PDF: {e}", exc_info=True)
+            results['transcript_pdf'] = None
+
+    # ── ADVANCED + ENTERPRISE: Subtitles & Knowledge Base Exports ────────
+    if tier in ("advanced", "enterprise"):
+
+        # Generate SRT Subtitles
+        try:
+            from app.services.template_subtitles import generate_srt
+
+            srt_path = str(output_path / "subtitles.srt")
+            generate_srt(
+                output_path=srt_path,
+                segments=segments,
+                transcript=transcript,
+            )
+            results['subtitles_srt'] = srt_path
+            log.info(f"Generated SRT subtitles: {srt_path}")
+        except Exception as e:
+            log.error(f"Failed to generate SRT subtitles: {e}", exc_info=True)
+            results['subtitles_srt'] = None
+
+        # Generate VTT Subtitles
+        try:
+            from app.services.template_subtitles import generate_vtt
+
+            vtt_path = str(output_path / "subtitles.vtt")
+            generate_vtt(
+                output_path=vtt_path,
+                segments=segments,
+                transcript=transcript,
+            )
+            results['subtitles_vtt'] = vtt_path
+            log.info(f"Generated VTT subtitles: {vtt_path}")
+        except Exception as e:
+            log.error(f"Failed to generate VTT subtitles: {e}", exc_info=True)
+            results['subtitles_vtt'] = None
+
+        # Generate Notion Export
+        try:
+            from app.services.template_knowledge_base import generate_notion_export
+
+            notion_path = str(output_path / "notion_export.md")
+            generate_notion_export(
+                output_path=notion_path,
+                title=title,
+                date=date,
+                attendees=attendees,
+                duration=duration,
+                bluf=bluf,
+                decisions=decisions,
+                execution_steps=execution_steps,
+                topics=topics,
+                action_items_raw=action_items,
+            )
+            results['notion_export'] = notion_path
+            log.info(f"Generated Notion export: {notion_path}")
+        except Exception as e:
+            log.error(f"Failed to generate Notion export: {e}", exc_info=True)
+            results['notion_export'] = None
+
+        # Generate Confluence Export
+        try:
+            from app.services.template_knowledge_base import generate_confluence_export
+
+            confluence_path = str(output_path / "confluence_export.txt")
+            generate_confluence_export(
+                output_path=confluence_path,
+                title=title,
+                date=date,
+                attendees=attendees,
+                duration=duration,
+                bluf=bluf,
+                decisions=decisions,
+                execution_steps=execution_steps,
+                topics=topics,
+                action_items_raw=action_items,
+            )
+            results['confluence_export'] = confluence_path
+            log.info(f"Generated Confluence export: {confluence_path}")
+        except Exception as e:
+            log.error(f"Failed to generate Confluence export: {e}", exc_info=True)
+            results['confluence_export'] = None
+
+    # ── ADVANCED + ENTERPRISE: Email Body HTML ───────────────────────────
+    if tier in ("advanced", "enterprise"):
+        try:
+            from app.services.template_email import generate_email_body
+
+            email_html = generate_email_body(
+                title=title,
+                date=date,
+                attendees=attendees,
+                duration=duration,
+                bluf=bluf,
+                decisions=decisions,
+                execution_steps=execution_steps,
+            )
+            results['email_body_html'] = email_html
+
+            # Also save to file for debugging
+            email_path = output_path / "email_body.html"
+            email_path.write_text(email_html, encoding='utf-8')
+            log.info(f"Generated email body HTML")
+        except Exception as e:
+            log.error(f"Failed to generate email HTML: {e}", exc_info=True)
+            results['email_body_html'] = None
+
+    # Record tier in results for downstream consumers
+    results['tier'] = tier
 
     return results

@@ -28,6 +28,7 @@ class ExecuteParams(BaseModel):
     submitter_name: Optional[str] = ""
     priority: Optional[int] = 0
     thread_id: Optional[str] = ""  # Gmail thread ID for reply-in-thread
+    tier: Optional[str] = "advanced"  # basic, advanced, enterprise
 
 
 class ExecuteRequest(BaseModel):
@@ -72,7 +73,8 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
 
         try:
             file_size = len(transcript_text.encode("utf-8"))
-            overrides_json = json.dumps({"transcript": transcript_text})
+            tier = body.params.tier or "advanced"
+            overrides_json = json.dumps({"transcript": transcript_text, "tier": tier})
 
             queue_result = await queue_manager.enqueue_job(
                 job_id=job_id,
@@ -131,6 +133,8 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
             file_size = 0
 
         # Enqueue instead of processing inline
+        tier = body.params.tier or "advanced"
+        tier_overrides = json.dumps({"tier": tier}) if tier != "advanced" else ""
         try:
             queue_result = await queue_manager.enqueue_job(
                 job_id=job_id,
@@ -140,6 +144,7 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
                 file_size_bytes=file_size,
                 priority=body.params.priority or 0,
                 thread_id=body.params.thread_id or "",
+                overrides_json=tier_overrides,
             )
 
             return {
