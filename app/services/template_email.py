@@ -210,9 +210,12 @@ def generate_email_body(
                         </td>
                     </tr>
 
-                    <!-- Footer -->
+                    <!-- Footer with Logo -->
                     <tr>
-                        <td style="padding: 16px 24px; border-top: 1px solid {COLORS["warm_gray"]}; text-align: center;">
+                        <td style="padding: 20px 24px; border-top: 1px solid {COLORS["warm_gray"]}; text-align: center;">
+                            <a href="https://goailabs.ai" target="_blank" style="text-decoration: none;">
+                                <img src="https://goailabs.ai/assets/logo.png" alt="Go AI Labs" width="160" style="width: 160px; height: auto; display: inline-block; margin-bottom: 8px;" />
+                            </a>
                             <p style="font-family: {MONO_STACK}; font-size: 10px; color: {COLORS["mid_gray"]}; margin: 0;">
                                 goailabs.ai &nbsp;|&nbsp; CONFIDENTIAL
                             </p>
