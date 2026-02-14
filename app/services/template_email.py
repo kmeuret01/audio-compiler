@@ -14,8 +14,8 @@ COLORS = {
     "light_bg": "#F5F3F0",
 }
 
-FONT_STACK = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
-MONO_STACK = "'Courier New', Consolas, monospace"
+FONT_STACK = "'DM Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+MONO_STACK = "'Space Mono', 'Courier New', Consolas, monospace"
 
 
 def generate_email_body(
@@ -116,6 +116,9 @@ def generate_email_body(
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body style="margin: 0; padding: 0; background-color: {COLORS["warm_gray"]}; font-family: {FONT_STACK};">
     <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: {COLORS["warm_gray"]};">

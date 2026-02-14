@@ -295,7 +295,7 @@ async def compile_audio(
     """Run the full 7-step audio compilation pipeline with tracing."""
     overrides = overrides or {}
     start = time.monotonic()
-    filename = Path(audio_path).name
+    filename = "Voice Session" if audio_path.startswith("transcript://") else Path(audio_path).name
     output_dir = Path(settings.output_dir) / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
 

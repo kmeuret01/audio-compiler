@@ -74,7 +74,7 @@ def generate_debrief(
 
     # Set default font
     style = doc.styles['Normal']
-    style.font.name = 'Calibri'
+    style.font.name = 'DM Sans'
     style.font.size = Pt(11)
     style.font.color.rgb = COLORS["dark_gray"]
 
@@ -84,34 +84,34 @@ def generate_debrief(
 
     # Brackets in accent color
     run_brackets = logo_para.add_run("[ ] ")
-    run_brackets.font.name = 'Consolas'
+    run_brackets.font.name = 'Space Mono'
     run_brackets.font.size = Pt(14)
     run_brackets.font.color.rgb = COLORS["accent"]
     run_brackets.bold = True
 
     # AI in black
     run_ai = logo_para.add_run("AI")
-    run_ai.font.name = 'Consolas'
+    run_ai.font.name = 'Space Mono'
     run_ai.font.size = Pt(12)
     run_ai.font.color.rgb = COLORS["black"]
     run_ai.bold = True
 
     # LABS in gray
     run_labs = logo_para.add_run("LABS")
-    run_labs.font.name = 'Calibri'
+    run_labs.font.name = 'DM Sans'
     run_labs.font.size = Pt(9)
     run_labs.font.color.rgb = COLORS["mid_gray"]
 
     # Doc type label
     run_type = logo_para.add_run("    FULL DEBRIEF")
-    run_type.font.name = 'Consolas'
+    run_type.font.name = 'Space Mono'
     run_type.font.size = Pt(8)
     run_type.font.color.rgb = COLORS["mid_gray"]
 
     # Title
     title_para = doc.add_paragraph()
     title_run = title_para.add_run(title)
-    title_run.font.name = 'Calibri'
+    title_run.font.name = 'DM Sans'
     title_run.font.size = Pt(18)
     title_run.font.color.rgb = COLORS["black"]
     title_run.bold = True
@@ -122,7 +122,7 @@ def generate_debrief(
         attendees_str += f" +{len(attendees) - 5} more"
     meta_para = doc.add_paragraph()
     meta_run = meta_para.add_run(f"{date}  |  {duration}  |  {attendees_str}")
-    meta_run.font.name = 'Consolas'
+    meta_run.font.name = 'Space Mono'
     meta_run.font.size = Pt(9)
     meta_run.font.color.rgb = COLORS["mid_gray"]
 
@@ -142,7 +142,7 @@ def generate_debrief(
     # BOTTOM LINE UP FRONT
     bluf_header = doc.add_paragraph()
     bluf_header_run = bluf_header.add_run("BOTTOM LINE UP FRONT")
-    bluf_header_run.font.name = 'Consolas'
+    bluf_header_run.font.name = 'Space Mono'
     bluf_header_run.font.size = Pt(9)
     bluf_header_run.font.color.rgb = COLORS["accent"]
     bluf_header_run.bold = True
@@ -158,7 +158,7 @@ def generate_debrief(
     if topics:
         topics_header = doc.add_paragraph()
         topics_header_run = topics_header.add_run("DISCUSSION TOPICS")
-        topics_header_run.font.name = 'Consolas'
+        topics_header_run.font.name = 'Space Mono'
         topics_header_run.font.size = Pt(9)
         topics_header_run.font.color.rgb = COLORS["accent"]
         topics_header_run.bold = True
@@ -183,7 +183,7 @@ def generate_debrief(
             label_cell = topic_table.rows[0].cells[0]
             label_para = label_cell.paragraphs[0]
             label_run = label_para.add_run("DISCUSSED")
-            label_run.font.name = 'Consolas'
+            label_run.font.name = 'Space Mono'
             label_run.font.size = Pt(8)
             label_run.font.color.rgb = COLORS["accent"]
             label_run.bold = True
@@ -199,7 +199,7 @@ def generate_debrief(
             label_cell = topic_table.rows[1].cells[0]
             label_para = label_cell.paragraphs[0]
             label_run = label_para.add_run("DECIDED")
-            label_run.font.name = 'Consolas'
+            label_run.font.name = 'Space Mono'
             label_run.font.size = Pt(8)
             label_run.font.color.rgb = COLORS["green"]
             label_run.bold = True
@@ -215,7 +215,7 @@ def generate_debrief(
             label_cell = topic_table.rows[2].cells[0]
             label_para = label_cell.paragraphs[0]
             label_run = label_para.add_run("NEXT")
-            label_run.font.name = 'Consolas'
+            label_run.font.name = 'Space Mono'
             label_run.font.size = Pt(8)
             label_run.font.color.rgb = COLORS["blue"]
             label_run.bold = True
@@ -233,7 +233,7 @@ def generate_debrief(
     if execution_steps:
         exec_header = doc.add_paragraph()
         exec_header_run = exec_header.add_run("EXECUTION BOARD")
-        exec_header_run.font.name = 'Consolas'
+        exec_header_run.font.name = 'Space Mono'
         exec_header_run.font.size = Pt(9)
         exec_header_run.font.color.rgb = COLORS["accent"]
         exec_header_run.bold = True
@@ -247,7 +247,7 @@ def generate_debrief(
 
             # Step number and title
             num_run = step_para.add_run(f"[{step_num}] ")
-            num_run.font.name = 'Consolas'
+            num_run.font.name = 'Space Mono'
             num_run.font.size = Pt(10)
             num_run.font.color.rgb = COLORS["accent"] if step_num == '0' else COLORS["dark_gray"]
             num_run.bold = True
@@ -259,7 +259,7 @@ def generate_debrief(
 
             if step_tag:
                 tag_run = step_para.add_run(f"  [{step_tag}]")
-                tag_run.font.name = 'Consolas'
+                tag_run.font.name = 'Space Mono'
                 tag_run.font.size = Pt(8)
                 tag_run.font.color.rgb = COLORS["mid_gray"]
 
@@ -275,7 +275,7 @@ def generate_debrief(
     footer_para = doc.add_paragraph()
     footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     footer_run = footer_para.add_run("goailabs.ai  |  CONFIDENTIAL")
-    footer_run.font.name = 'Consolas'
+    footer_run.font.name = 'Space Mono'
     footer_run.font.size = Pt(8)
     footer_run.font.color.rgb = COLORS["mid_gray"]
 

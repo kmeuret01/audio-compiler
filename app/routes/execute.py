@@ -1,5 +1,6 @@
-"""Execute endpoint — enqueues compile_audio or runs transcribe_only."""
+"""Execute endpoint — enqueues compile_audio, transcribe_only, or compile_transcript."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -19,7 +20,8 @@ router = APIRouter()
 
 
 class ExecuteParams(BaseModel):
-    audio_path: str
+    audio_path: Optional[str] = ""
+    transcript: Optional[str] = None  # Pre-transcribed text (for compile_transcript)
     language: Optional[str] = None
     overrides: Optional[dict] = None
     submitter_email: Optional[str] = ""
@@ -44,13 +46,64 @@ async def execute(body: ExecuteRequest, request: Request, _token: str = Depends(
     queue_manager = request.app.state.queue_manager
 
     # Validate task
-    if body.task not in ("compile_audio", "transcribe_only"):
+    if body.task not in ("compile_audio", "transcribe_only", "compile_transcript"):
         return {
             "success": False,
-            "error": {"code": "INVALID_PARAMS", "message": f"Unknown task: {body.task}. Supported: compile_audio, transcribe_only"},
+            "error": {"code": "INVALID_PARAMS", "message": f"Unknown task: {body.task}. Supported: compile_audio, transcribe_only, compile_transcript"},
         }
 
-    # Validate audio file
+    # compile_transcript skips audio file validation
+    if body.task == "compile_transcript":
+        transcript_text = body.params.transcript or ""
+        if len(transcript_text.strip()) < 50:
+            return {
+                "success": False,
+                "error": {"code": "INVALID_PARAMS", "message": "Transcript must be at least 50 characters"},
+            }
+
+        job_id = db.create_job(
+            task="compile_transcript",
+            request_id=body.request_id,
+            company_id=body.company_id,
+            audio_path="transcript://voice-session",
+            audio_format="text",
+            thread_id=body.params.thread_id or "",
+        )
+
+        try:
+            file_size = len(transcript_text.encode("utf-8"))
+            overrides_json = json.dumps({"transcript": transcript_text})
+
+            queue_result = await queue_manager.enqueue_job(
+                job_id=job_id,
+                audio_path="transcript://voice-session",
+                submitter_email=body.params.submitter_email or "",
+                submitter_name=body.params.submitter_name or "",
+                file_size_bytes=file_size,
+                priority=body.params.priority or 0,
+                thread_id=body.params.thread_id or "",
+                overrides_json=overrides_json,
+            )
+
+            return {
+                "success": True,
+                "job_id": job_id,
+                "request_id": body.request_id,
+                "queued": True,
+                "queue_position": queue_result["queue_position"],
+                "estimated_wait_seconds": queue_result["estimated_wait_seconds"],
+                "message": queue_result["message"],
+            }
+        except Exception as e:
+            log.error("Failed to enqueue compile_transcript job %s: %s", job_id, e, exc_info=True)
+            return {
+                "success": False,
+                "job_id": job_id,
+                "request_id": body.request_id,
+                "error": {"code": "INTERNAL_ERROR", "message": str(e)},
+            }
+
+    # Validate audio file (for compile_audio and transcribe_only)
     error = validate_audio_file(body.params.audio_path, settings)
     if error:
         return {

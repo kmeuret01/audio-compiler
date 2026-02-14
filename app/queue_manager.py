@@ -64,6 +64,7 @@ def migrate_database(db_path: str):
         "notification_attempts": "INTEGER DEFAULT 0",
         "notification_error": "TEXT",
         "thread_id": "TEXT",
+        "overrides_json": "TEXT DEFAULT ''",
     }
 
     for col_name, col_def in new_columns.items():
@@ -146,6 +147,7 @@ class QueueManager:
         file_size_bytes: int = 0,
         priority: int = 0,
         thread_id: str = "",
+        overrides_json: str = "",
     ) -> dict:
         """Add a job to the queue. Returns immediately with queue position."""
         now = datetime.now(timezone.utc).isoformat()
@@ -163,7 +165,8 @@ class QueueManager:
                 submitter_email = ?,
                 submitter_name = ?,
                 file_size_bytes = ?,
-                thread_id = ?
+                thread_id = ?,
+                overrides_json = ?
             WHERE job_id = ?
         """, (
             JobStatus.QUEUED.value,
@@ -174,6 +177,7 @@ class QueueManager:
             submitter_name,
             file_size_bytes,
             thread_id,
+            overrides_json,
             job_id,
         ))
 
@@ -225,14 +229,14 @@ class QueueManager:
                     pass
                 continue
 
-            job_id, audio_path = job
+            job_id, audio_path, overrides_json = job
             logger.info(f"Worker picked up job {job_id}: {audio_path}")
 
             self._update_job_status(job_id, JobStatus.PROCESSING.value)
 
             try:
                 if self.process_job_func:
-                    success = await self.process_job_func(job_id, audio_path)
+                    success = await self.process_job_func(job_id, audio_path, overrides_json)
                 else:
                     logger.error(f"No process_job_func set! Job {job_id} cannot be processed.")
                     success = False
@@ -491,12 +495,12 @@ class QueueManager:
         return cancelled
 
     def _get_next_job(self) -> Optional[tuple]:
-        """Get the next job to process."""
+        """Get the next job to process. Returns (job_id, audio_path, overrides_json)."""
         conn = _wal_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT job_id, audio_path FROM jobs
+            SELECT job_id, audio_path, COALESCE(overrides_json, '') FROM jobs
             WHERE status = ?
             ORDER BY priority DESC, queued_at ASC
             LIMIT 1

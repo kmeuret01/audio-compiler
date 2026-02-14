@@ -1,7 +1,19 @@
-"""AI Labs Brand System — shared across all output templates."""
+"""GoAI Labs Brand System — shared across all output templates.
+
+Custom fonts: DM Sans (body/heading) + Space Mono (monospace/accents).
+Installed at /usr/local/share/fonts/goailabs/. Falls back to Helvetica/Courier
+if registration fails.
+"""
+
+import logging
+from pathlib import Path
 
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+log = logging.getLogger("brand")
 
 # Brand Colors as reportlab HexColor objects
 BLACK = HexColor("#0A0A0A")
@@ -27,31 +39,70 @@ COLORS_HEX = {
     "light_bg": "#F5F3F0",
 }
 
-# Fonts (reportlab built-ins)
-FONT_HEADING = "Helvetica-Bold"
-FONT_BODY = "Helvetica"
-FONT_MONO = "Courier"
-FONT_MONO_BOLD = "Courier-Bold"
+# ── Font Registration ───────────────────────────────────────────────────────
+
+_FONT_DIR = Path("/usr/local/share/fonts/goailabs")
+_CUSTOM_FONTS_OK = False
+
+_FONT_MAP = {
+    "DMSans": "DMSans-Regular.ttf",
+    "DMSans-Bold": "DMSans-Bold.ttf",
+    "DMSans-Italic": "DMSans-Italic.ttf",
+    "SpaceMono": "SpaceMono-Regular.ttf",
+    "SpaceMono-Bold": "SpaceMono-Bold.ttf",
+}
+
+try:
+    for name, filename in _FONT_MAP.items():
+        path = _FONT_DIR / filename
+        if path.exists():
+            pdfmetrics.registerFont(TTFont(name, str(path)))
+        else:
+            raise FileNotFoundError(f"Font file missing: {path}")
+    _CUSTOM_FONTS_OK = True
+    log.info("Custom GoAI Labs fonts registered (DM Sans + Space Mono)")
+except Exception as e:
+    log.warning("Custom fonts unavailable, falling back to Helvetica/Courier: %s", e)
+    _CUSTOM_FONTS_OK = False
+
+# Font constants — use custom fonts if available, else fallback
+if _CUSTOM_FONTS_OK:
+    FONT_HEADING = "DMSans-Bold"
+    FONT_BODY = "DMSans"
+    FONT_BODY_ITALIC = "DMSans-Italic"
+    FONT_MONO = "SpaceMono"
+    FONT_MONO_BOLD = "SpaceMono-Bold"
+else:
+    FONT_HEADING = "Helvetica-Bold"
+    FONT_BODY = "Helvetica"
+    FONT_BODY_ITALIC = "Helvetica-Oblique"
+    FONT_MONO = "Courier"
+    FONT_MONO_BOLD = "Courier-Bold"
 
 
 def draw_logo(canvas_obj, x, y):
-    """Draw the [ ] AI LABS logo mark at the given position."""
+    """Draw the [AI] LABS logo mark at the given position."""
     c = canvas_obj
-    c.setFont(FONT_MONO_BOLD, 14)
-    c.setFillColor(ACCENT)
-    c.drawString(x, y, "[ ]")
-
-    c.setFont(FONT_MONO_BOLD, 12)
+    # Bracket: [
+    c.setFont(FONT_MONO, 16)
     c.setFillColor(BLACK)
-    c.drawString(x + 28, y + 1, "AI")
-
-    c.setFont(FONT_BODY, 8)
-    c.setFillColor(MID_GRAY)
+    c.drawString(x, y, "[")
+    # AI
+    c.setFont(FONT_MONO_BOLD, 14)
+    c.setFillColor(BLACK)
+    c.drawString(x + 10, y + 1, "AI")
+    # Bracket: ]
+    c.setFont(FONT_MONO, 16)
+    c.setFillColor(BLACK)
+    c.drawString(x + 32, y, "]")
+    # LABS
+    c.setFont(FONT_HEADING, 14)
+    c.setFillColor(ACCENT)
     c.drawString(x + 48, y + 1, "LABS")
 
 
 def draw_header_footer(canvas_obj, doc, doc_type="DOCUMENT"):
-    """Standard header/footer for all AI Labs PDFs."""
+    """Standard header/footer for all GoAI Labs PDFs."""
     from reportlab.lib.pagesizes import letter
     PAGE_W, PAGE_H = letter
     LEFT_MARGIN = 0.75 * inch

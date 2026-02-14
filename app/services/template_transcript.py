@@ -14,7 +14,7 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT
 
 from app.services.brand import (
     BLACK, WHITE, WARM_GRAY, MID_GRAY, DARK_GRAY, ACCENT, LIGHT_BG,
-    FONT_HEADING, FONT_BODY, FONT_MONO, draw_header_footer
+    FONT_HEADING, FONT_BODY, FONT_MONO, FONT_MONO_BOLD, draw_header_footer
 )
 
 PAGE_W, PAGE_H = letter
@@ -49,9 +49,9 @@ def _create_styles():
 
     styles.add(ParagraphStyle(
         name='SectionHead',
-        fontName=FONT_MONO,
-        fontSize=8,
-        leading=10,
+        fontName=FONT_MONO_BOLD,
+        fontSize=8.5,
+        leading=11,
         textColor=ACCENT,
         spaceBefore=12,
         spaceAfter=6,
@@ -95,8 +95,8 @@ def _create_styles():
     styles.add(ParagraphStyle(
         name='UtteranceText',
         fontName=FONT_BODY,
-        fontSize=9,
-        leading=12,
+        fontSize=9.5,
+        leading=13,
         textColor=DARK_GRAY,
         leftIndent=8,
         spaceAfter=8,

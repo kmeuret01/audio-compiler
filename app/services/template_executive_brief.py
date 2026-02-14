@@ -13,7 +13,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 from app.services.brand import (
     BLACK, WHITE, WARM_GRAY, MID_GRAY, DARK_GRAY, ACCENT, LIGHT_BG,
-    FONT_HEADING, FONT_BODY, FONT_MONO, draw_header_footer
+    FONT_HEADING, FONT_BODY, FONT_MONO, FONT_MONO_BOLD, draw_header_footer
 )
 
 PAGE_W, PAGE_H = letter
@@ -31,8 +31,8 @@ def _create_styles():
     styles.add(ParagraphStyle(
         name='BriefTitle',
         fontName=FONT_HEADING,
-        fontSize=16,
-        leading=20,
+        fontSize=18,
+        leading=22,
         textColor=BLACK,
         spaceAfter=4,
     ))
@@ -48,9 +48,9 @@ def _create_styles():
 
     styles.add(ParagraphStyle(
         name='SectionHead',
-        fontName=FONT_MONO,
-        fontSize=8,
-        leading=10,
+        fontName=FONT_MONO_BOLD,
+        fontSize=8.5,
+        leading=11,
         textColor=ACCENT,
         spaceBefore=12,
         spaceAfter=4,
@@ -59,8 +59,8 @@ def _create_styles():
     styles.add(ParagraphStyle(
         name='BriefBody',
         fontName=FONT_BODY,
-        fontSize=9.5,
-        leading=13,
+        fontSize=10,
+        leading=14,
         textColor=DARK_GRAY,
         spaceAfter=6,
     ))

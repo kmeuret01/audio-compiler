@@ -20,17 +20,26 @@ logging.basicConfig(
 log = logging.getLogger("audio-compiler")
 
 
-async def process_job_wrapper(job_id: str, audio_path: str) -> bool:
+async def process_job_wrapper(job_id: str, audio_path: str, overrides_json: str = "") -> bool:
     """Wrapper that calls compile_audio and returns success/failure."""
+    import json as _json
     try:
         db = app.state.db
         settings = app.state.settings
+
+        overrides = None
+        if overrides_json:
+            try:
+                overrides = _json.loads(overrides_json)
+            except _json.JSONDecodeError:
+                log.warning("Invalid overrides_json for job %s, ignoring", job_id)
 
         result = await compile_audio(
             job_id=job_id,
             audio_path=audio_path,
             db=db,
             settings=settings,
+            overrides=overrides,
         )
         return result.get("status") == "completed"
     except Exception as e:
