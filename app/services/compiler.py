@@ -185,30 +185,31 @@ CRITICAL RULES:
 
 async def _stage_5_summary(transcript: str, settings: Settings) -> dict:
     """Stage 5: Generate executive summary."""
-    system = """You are an executive assistant producing a concise but SUBSTANTIVE executive summary.
+    system = """You are an executive assistant producing a BRIEF, high-impact executive summary.
 
-Do NOT use markdown heading syntax (no # or ## characters).
-Format section headers as plain text ending with a colon on their own line.
-Leave a blank line between section header and content.
-Leave an extra blank line between sections.
+FORMATTING RULES:
+- Do NOT use markdown heading syntax (no # or ## characters).
+- Section headers are plain text ending with a colon, on their own line.
+- One blank line between sections.
+- Every bullet point is ONE short sentence. No compound sentences, no semicolons.
 
 Required sections:
 
-Purpose of the Meeting:
-[2-3 sentences explaining WHY this meeting happened and what it aimed to accomplish. Be specific — name the project, the business, the challenge.]
+Purpose:
+[1 sentence. What was this meeting about? Name the project/business.]
 
 Key Outcomes:
-[4-6 bullet points using "- " prefix. Each outcome must be SPECIFIC — include names, numbers, tools, and decisions. Not "discussed marketing" but "decided to prioritize Facebook Ads over Google Ads due to unresolved tracking tag issue; Jacob to run targeted campaigns using scraped Instagram audience data."]
+[3-5 bullet points using "- " prefix. Each bullet = one specific decision or finding. Keep each under 15 words. Include names, numbers, tools where relevant.]
 
 Next Steps:
-[3-5 bullet points using "- " prefix. Each must name WHO does WHAT by WHEN if discussed.]
+[3-4 bullet points using "- " prefix. Format: "WHO — WHAT — WHEN". One line each.]
 
 Spending & Resources:
-[Only include if financial decisions were made. Note specific amounts, authorizations, and constraints.]
+[Only include if financial decisions were made. 1-2 bullets max.]
 
-QUALITY STANDARD: A reader who was NOT in the meeting should be able to understand exactly what was decided and why. Generic summaries that could apply to any meeting are unacceptable.
+QUALITY: Specific over verbose. A busy executive should scan this in 30 seconds.
 
-Keep it under 400 words."""
+Keep it under 200 words total."""
     result = await _call_openai(system, f"Transcript:\n\n{transcript}", settings)
     return {"text": result["text"], "usage": result["usage"]}
 

@@ -1,4 +1,4 @@
-"""Email Body HTML Template — structured HTML for email clients."""
+"""Email Body HTML Template — branded, brief meeting debrief for email clients."""
 
 from typing import List
 
@@ -28,88 +28,58 @@ def generate_email_body(
     execution_steps: List[dict],
 ) -> str:
     """
-    Generate the HTML email body.
+    Generate a branded, concise HTML email body.
 
-    Args:
-        title: Meeting title
-        date: Meeting date
-        attendees: List of attendee names
-        duration: Estimated duration string
-        bluf: Bottom Line Up Front text
-        decisions: List of key decision strings
-        execution_steps: List of dicts: {num, title, summary}
-
-    Returns:
-        HTML string for email body
+    Designed to be scannable in 30 seconds — high-points only.
+    Full details live in the attached PDF/DOCX.
     """
     attendees_str = ", ".join(attendees[:4])
     if len(attendees) > 4:
         attendees_str += f" +{len(attendees) - 4} more"
 
-    # Build decisions list HTML
+    # ── Key Decisions (limit 4, short) ────────────────────────────────
     decisions_html = ""
     if decisions:
-        decisions_items = "".join([
-            f'<li style="margin-bottom: 6px; color: {COLORS["dark_gray"]};">{d}</li>'
-            for d in decisions
+        items = "".join([
+            f'<li style="margin-bottom:4px;color:{COLORS["dark_gray"]};font-size:13px;line-height:1.4;">{d}</li>'
+            for d in decisions[:4]
         ])
         decisions_html = f"""
-        <tr>
-            <td style="padding: 16px 24px;">
-                <p style="font-family: {MONO_STACK}; font-size: 11px; color: {COLORS["accent"]}; margin: 0 0 8px 0; font-weight: bold; letter-spacing: 0.5px;">
-                    KEY DECISIONS
-                </p>
-                <ol style="font-family: {FONT_STACK}; font-size: 14px; line-height: 1.5; margin: 0; padding-left: 20px; color: {COLORS["dark_gray"]};">
-                    {decisions_items}
-                </ol>
-            </td>
-        </tr>
-        """
+                    <tr>
+                        <td style="padding:12px 24px 0 24px;">
+                            <p style="font-family:{MONO_STACK};font-size:10px;color:{COLORS["accent"]};margin:0 0 6px 0;font-weight:bold;letter-spacing:0.5px;">
+                                KEY DECISIONS
+                            </p>
+                            <ol style="font-family:{FONT_STACK};font-size:13px;line-height:1.4;margin:0;padding-left:18px;color:{COLORS["dark_gray"]};">
+                                {items}
+                            </ol>
+                        </td>
+                    </tr>"""
 
-    # Build execution steps HTML
+    # ── Next Steps (limit 4, WHO — WHAT — WHEN format) ───────────────
     steps_html = ""
     if execution_steps:
-        steps_rows = ""
+        # Flatten all items from execution steps into a single list
+        all_items = []
         for step in execution_steps:
-            step_num = step.get('num', '0')
-            step_title = step.get('title', '')
-            step_items = step.get('items', [])
-
-            num_color = COLORS["accent"] if str(step_num) == "0" else COLORS["dark_gray"]
-
-            # Build items list
-            items_html = ""
-            if step_items:
-                items_list = "".join([
-                    f'<li style="margin-bottom: 4px; color: {COLORS["dark_gray"]}; font-size: 13px;">{item}</li>'
-                    for item in step_items[:5]  # Limit to 5 items per step
-                ])
-                items_html = f'<ul style="font-family: {FONT_STACK}; margin: 6px 0 0 0; padding-left: 18px;">{items_list}</ul>'
-
-            steps_rows += f"""
-            <tr>
-                <td style="padding: 8px 12px; vertical-align: top; width: 40px; font-family: {MONO_STACK}; font-size: 12px; font-weight: bold; color: {num_color};">
-                    [{step_num}]
-                </td>
-                <td style="padding: 8px 12px; vertical-align: top;">
-                    <strong style="font-family: {FONT_STACK}; font-size: 14px; color: {COLORS["black"]};">{step_title}</strong>
-                    {items_html}
-                </td>
-            </tr>
-            """
-
-        steps_html = f"""
-        <tr>
-            <td style="padding: 16px 24px;">
-                <p style="font-family: {MONO_STACK}; font-size: 11px; color: {COLORS["accent"]}; margin: 0 0 8px 0; font-weight: bold; letter-spacing: 0.5px;">
-                    EXECUTION STEPS
-                </p>
-                <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: {COLORS["light_bg"]}; border-radius: 4px;">
-                    {steps_rows}
-                </table>
-            </td>
-        </tr>
-        """
+            for item in step.get('items', []):
+                all_items.append(item)
+        if all_items:
+            items = "".join([
+                f'<li style="margin-bottom:4px;color:{COLORS["dark_gray"]};font-size:13px;line-height:1.4;">{item}</li>'
+                for item in all_items[:4]
+            ])
+            steps_html = f"""
+                    <tr>
+                        <td style="padding:12px 24px 0 24px;">
+                            <p style="font-family:{MONO_STACK};font-size:10px;color:{COLORS["accent"]};margin:0 0 6px 0;font-weight:bold;letter-spacing:0.5px;">
+                                NEXT STEPS
+                            </p>
+                            <ul style="font-family:{FONT_STACK};font-size:13px;line-height:1.4;margin:0;padding-left:18px;color:{COLORS["dark_gray"]};">
+                                {items}
+                            </ul>
+                        </td>
+                    </tr>"""
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -120,103 +90,66 @@ def generate_email_body(
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
-<body style="margin: 0; padding: 0; background-color: {COLORS["warm_gray"]}; font-family: {FONT_STACK};">
-    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: {COLORS["warm_gray"]};">
+<body style="margin:0;padding:0;background-color:{COLORS["warm_gray"]};font-family:{FONT_STACK};">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:{COLORS["warm_gray"]};">
         <tr>
-            <td align="center" style="padding: 24px 16px;">
-                <table cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; background-color: {COLORS["white"]}; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+            <td align="center" style="padding:20px 16px;">
+                <table cellpadding="0" cellspacing="0" border="0" width="560" style="max-width:560px;background-color:{COLORS["white"]};border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
 
-                    <!-- Header with Logo -->
+                    <!-- Header -->
                     <tr>
-                        <td style="padding: 20px 24px; border-bottom: 1px solid {COLORS["warm_gray"]};">
+                        <td style="padding:16px 24px;border-bottom:2px solid {COLORS["accent"]};">
                             <table cellpadding="0" cellspacing="0" border="0" width="100%">
                                 <tr>
                                     <td>
-                                        <span style="font-family: {MONO_STACK}; font-size: 16px; font-weight: bold; color: {COLORS["accent"]};">[ ]</span>
-                                        <span style="font-family: {MONO_STACK}; font-size: 14px; font-weight: bold; color: {COLORS["black"]};">AI</span>
-                                        <span style="font-family: {FONT_STACK}; font-size: 10px; color: {COLORS["mid_gray"]};">LABS</span>
+                                        <img src="https://goailabs.ai/assets/logo.png" alt="Go AI Labs" width="120" style="width:120px;height:auto;display:inline-block;" />
                                     </td>
-                                    <td align="right">
-                                        <span style="font-family: {MONO_STACK}; font-size: 10px; color: {COLORS["mid_gray"]};">MEETING DEBRIEF</span>
+                                    <td align="right" valign="middle">
+                                        <span style="font-family:{MONO_STACK};font-size:10px;color:{COLORS["mid_gray"]};letter-spacing:0.5px;">MEETING DEBRIEF</span>
                                     </td>
                                 </tr>
                             </table>
                         </td>
                     </tr>
 
-                    <!-- Title and Meta -->
+                    <!-- Title + Meta -->
                     <tr>
-                        <td style="padding: 20px 24px 8px 24px;">
-                            <h1 style="font-family: {FONT_STACK}; font-size: 20px; font-weight: bold; color: {COLORS["black"]}; margin: 0 0 8px 0;">
+                        <td style="padding:16px 24px 4px 24px;">
+                            <h1 style="font-family:{FONT_STACK};font-size:18px;font-weight:bold;color:{COLORS["black"]};margin:0 0 4px 0;">
                                 {title}
                             </h1>
-                            <p style="font-family: {MONO_STACK}; font-size: 11px; color: {COLORS["mid_gray"]}; margin: 0;">
+                            <p style="font-family:{MONO_STACK};font-size:10px;color:{COLORS["mid_gray"]};margin:0;">
                                 {date} &nbsp;|&nbsp; {duration} &nbsp;|&nbsp; {attendees_str}
                             </p>
                         </td>
                     </tr>
 
-                    <!-- Orange Divider -->
+                    <!-- Summary -->
                     <tr>
-                        <td style="padding: 0 24px;">
-                            <div style="height: 3px; background-color: {COLORS["accent"]}; border-radius: 2px;"></div>
-                        </td>
-                    </tr>
-
-                    <!-- BLUF Section -->
-                    <tr>
-                        <td style="padding: 16px 24px;">
-                            <p style="font-family: {MONO_STACK}; font-size: 11px; color: {COLORS["accent"]}; margin: 0 0 8px 0; font-weight: bold; letter-spacing: 0.5px;">
-                                BOTTOM LINE UP FRONT
-                            </p>
-                            <div style="border-left: 4px solid {COLORS["accent"]}; padding-left: 16px; background-color: {COLORS["accent_subtle"]}; padding: 12px 16px; border-radius: 0 4px 4px 0;">
-                                <p style="font-family: {FONT_STACK}; font-size: 14px; line-height: 1.6; color: {COLORS["dark_gray"]}; margin: 0;">
+                        <td style="padding:12px 24px;">
+                            <div style="border-left:3px solid {COLORS["accent"]};padding:8px 12px;background-color:{COLORS["accent_subtle"]};border-radius:0 3px 3px 0;">
+                                <p style="font-family:{FONT_STACK};font-size:13px;line-height:1.5;color:{COLORS["dark_gray"]};margin:0;">
                                     {bluf}
                                 </p>
                             </div>
                         </td>
                     </tr>
+{decisions_html}
+{steps_html}
 
-                    {decisions_html}
-
-                    {steps_html}
-
-                    <!-- Attachments Section -->
+                    <!-- Closing -->
                     <tr>
-                        <td style="padding: 16px 24px;">
-                            <p style="font-family: {MONO_STACK}; font-size: 11px; color: {COLORS["accent"]}; margin: 0 0 8px 0; font-weight: bold; letter-spacing: 0.5px;">
-                                ATTACHED
+                        <td style="padding:16px 24px 8px 24px;">
+                            <p style="font-family:{FONT_STACK};font-size:12px;color:{COLORS["mid_gray"]};margin:0;">
+                                Full notes, action items, and transcript attached.
                             </p>
-                            <table cellpadding="0" cellspacing="0" border="0">
-                                <tr>
-                                    <td style="padding: 4px 0;">
-                                        <span style="font-family: {MONO_STACK}; font-size: 12px; color: {COLORS["mid_gray"]};">📄</span>
-                                        <span style="font-family: {FONT_STACK}; font-size: 13px; color: {COLORS["dark_gray"]};">executive_brief.pdf</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 4px 0;">
-                                        <span style="font-family: {MONO_STACK}; font-size: 12px; color: {COLORS["mid_gray"]};">📝</span>
-                                        <span style="font-family: {FONT_STACK}; font-size: 13px; color: {COLORS["dark_gray"]};">full_debrief.docx</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 4px 0;">
-                                        <span style="font-family: {MONO_STACK}; font-size: 12px; color: {COLORS["mid_gray"]};">📜</span>
-                                        <span style="font-family: {FONT_STACK}; font-size: 13px; color: {COLORS["dark_gray"]};">transcript.pdf</span>
-                                    </td>
-                                </tr>
-                            </table>
                         </td>
                     </tr>
 
-                    <!-- Footer with Logo -->
+                    <!-- Footer -->
                     <tr>
-                        <td style="padding: 20px 24px; border-top: 1px solid {COLORS["warm_gray"]}; text-align: center;">
-                            <a href="https://goailabs.ai" target="_blank" style="text-decoration: none;">
-                                <img src="https://goailabs.ai/assets/logo.png" alt="Go AI Labs" width="160" style="width: 160px; height: auto; display: inline-block; margin-bottom: 8px;" />
-                            </a>
-                            <p style="font-family: {MONO_STACK}; font-size: 10px; color: {COLORS["mid_gray"]}; margin: 0;">
+                        <td style="padding:12px 24px;border-top:1px solid {COLORS["warm_gray"]};text-align:center;">
+                            <p style="font-family:{MONO_STACK};font-size:9px;color:{COLORS["mid_gray"]};margin:0;">
                                 goailabs.ai &nbsp;|&nbsp; CONFIDENTIAL
                             </p>
                         </td>
