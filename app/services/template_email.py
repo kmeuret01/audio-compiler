@@ -1,5 +1,6 @@
 """Email Body HTML Template — branded, brief meeting debrief for email clients."""
 
+import re
 from typing import List
 
 # Brand colors for inline CSS
@@ -17,6 +18,38 @@ COLORS = {
 FONT_STACK = "'DM Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 MONO_STACK = "'Space Mono', 'Courier New', Consolas, monospace"
 
+# ── Content limits — keep the email scannable in 30 seconds ──────────
+_BLUF_MAX_CHARS = 220
+_DECISION_MAX_CHARS = 100
+_STEP_MAX_CHARS = 100
+_MAX_DECISIONS = 4
+_MAX_STEPS = 3
+_UNKNOWN_VALUES = {"unknown", "n/a", "none", ""}
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Truncate text to *limit* chars, breaking at the last word boundary."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return truncated + "..."
+
+
+def _clean_step(text: str) -> str:
+    """Strip '→ None' / '→ TBD' artifacts and tidy whitespace."""
+    text = re.sub(r'\s*→\s*(None|TBD|N/A)\s*$', '', text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _clean_attendee(name: str) -> str:
+    """Strip parenthetical noise like '(discussed, not present)' from names."""
+    return re.sub(r'\s*\([^)]*\)', '', name).strip()
+
+
+def _is_known(value: str) -> bool:
+    return value.strip().lower() not in _UNKNOWN_VALUES
+
 
 def generate_email_body(
     title: str,
@@ -33,16 +66,35 @@ def generate_email_body(
     Designed to be scannable in 30 seconds — high-points only.
     Full details live in the attached PDF/DOCX.
     """
-    attendees_str = ", ".join(attendees[:4])
-    if len(attendees) > 4:
-        attendees_str += f" +{len(attendees) - 4} more"
+    # ── Clean attendees ──────────────────────────────────────────────
+    clean_attendees = [
+        _clean_attendee(a) for a in attendees
+        if _is_known(_clean_attendee(a))
+    ]
+    attendees_str = ", ".join(clean_attendees[:4])
+    if len(clean_attendees) > 4:
+        attendees_str += f" +{len(clean_attendees) - 4} more"
 
-    # ── Key Decisions (limit 4, short) ────────────────────────────────
+    # ── Meta line — skip unknown fields ──────────────────────────────
+    meta_parts = []
+    if _is_known(date):
+        meta_parts.append(date)
+    if _is_known(duration):
+        meta_parts.append(duration)
+    if attendees_str:
+        meta_parts.append(attendees_str)
+    meta_str = " &nbsp;|&nbsp; ".join(meta_parts) if meta_parts else ""
+
+    # ── Truncate BLUF ────────────────────────────────────────────────
+    bluf_short = _truncate(bluf, _BLUF_MAX_CHARS)
+
+    # ── Key Decisions (limit to short bullets) ───────────────────────
     decisions_html = ""
     if decisions:
         items = "".join([
-            f'<li style="margin-bottom:4px;color:{COLORS["dark_gray"]};font-size:13px;line-height:1.4;">{d}</li>'
-            for d in decisions[:4]
+            f'<li style="margin-bottom:4px;color:{COLORS["dark_gray"]};font-size:13px;line-height:1.4;">'
+            f'{_truncate(d, _DECISION_MAX_CHARS)}</li>'
+            for d in decisions[:_MAX_DECISIONS]
         ])
         decisions_html = f"""
                     <tr>
@@ -56,18 +108,20 @@ def generate_email_body(
                         </td>
                     </tr>"""
 
-    # ── Next Steps (limit 4, WHO — WHAT — WHEN format) ───────────────
+    # ── Next Steps (limit 3, cleaned) ────────────────────────────────
     steps_html = ""
     if execution_steps:
-        # Flatten all items from execution steps into a single list
         all_items = []
         for step in execution_steps:
             for item in step.get('items', []):
-                all_items.append(item)
+                cleaned = _clean_step(item)
+                if cleaned:
+                    all_items.append(cleaned)
         if all_items:
             items = "".join([
-                f'<li style="margin-bottom:4px;color:{COLORS["dark_gray"]};font-size:13px;line-height:1.4;">{item}</li>'
-                for item in all_items[:4]
+                f'<li style="margin-bottom:4px;color:{COLORS["dark_gray"]};font-size:13px;line-height:1.4;">'
+                f'{_truncate(item, _STEP_MAX_CHARS)}</li>'
+                for item in all_items[:_MAX_STEPS]
             ])
             steps_html = f"""
                     <tr>
@@ -119,17 +173,17 @@ def generate_email_body(
                                 {title}
                             </h1>
                             <p style="font-family:{MONO_STACK};font-size:10px;color:{COLORS["mid_gray"]};margin:0;">
-                                {date} &nbsp;|&nbsp; {duration} &nbsp;|&nbsp; {attendees_str}
+                                {meta_str}
                             </p>
                         </td>
                     </tr>
 
-                    <!-- Summary -->
+                    <!-- BLUF -->
                     <tr>
                         <td style="padding:12px 24px;">
                             <div style="border-left:3px solid {COLORS["accent"]};padding:8px 12px;background-color:{COLORS["accent_subtle"]};border-radius:0 3px 3px 0;">
                                 <p style="font-family:{FONT_STACK};font-size:13px;line-height:1.5;color:{COLORS["dark_gray"]};margin:0;">
-                                    {bluf}
+                                    {bluf_short}
                                 </p>
                             </div>
                         </td>
