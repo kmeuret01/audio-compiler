@@ -53,6 +53,11 @@ def _build_cues(segments: List[dict], transcript: str) -> List[dict]:
         text = seg.get("text", "").strip()
         if not text:
             continue
+        # FEAT-AUDIO-DIARIZE-001: prefix speaker label when present (backward
+        # compatible — segments without a speaker render exactly as before).
+        speaker = seg.get("speaker")
+        if speaker:
+            text = f"{speaker}: {text}"
 
         # End time: use next segment's start, or estimate from text length
         if i + 1 < len(segments):
