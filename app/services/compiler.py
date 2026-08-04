@@ -17,6 +17,39 @@ from app.tracing import run_stage
 from app.services.transcription import transcribe
 from app.services.output_generator import generate_all_outputs
 
+import logging
+
+log = logging.getLogger("audio-compiler.pipeline")
+
+
+def _build_labeled_transcript(plain: str, segments: list) -> str:
+    """Render diarized segments as speaker-labelled turns.
+
+    Consecutive segments from the same speaker are merged into one turn.
+    If segments have no speaker labels (e.g. whisper-1 fallback), returns the
+    plain transcript unchanged — keeping downstream input byte-identical to today.
+    """
+    if not segments or not any(s.get("speaker") for s in segments):
+        return plain
+    lines: list[str] = []
+    cur_speaker = None
+    cur_parts: list[str] = []
+    for seg in segments:
+        spk = seg.get("speaker") or "?"
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        if spk != cur_speaker:
+            if cur_parts:
+                lines.append(f"Speaker {cur_speaker}: {' '.join(cur_parts)}")
+            cur_speaker = spk
+            cur_parts = [text]
+        else:
+            cur_parts.append(text)
+    if cur_parts:
+        lines.append(f"Speaker {cur_speaker}: {' '.join(cur_parts)}")
+    return "\n".join(lines)
+
 
 # ── LLM Caller ──────────────────────────────────────────────────────
 
@@ -314,10 +347,26 @@ async def compile_audio(
             llm_model="whisper-1",
         )
 
-    transcript = transcription["transcript"]
+    raw_transcript = transcription["transcript"]
     segments = transcription.get("segments", [])
+    # FEAT-AUDIO-DIARIZE-001: when segments carry speaker labels, feed a
+    # speaker-labelled transcript to all downstream stages so metadata/notes/
+    # actions can attribute turns correctly. Falls back to plain text otherwise.
+    transcript = _build_labeled_transcript(raw_transcript, segments)
     transcript_path = output_dir / "transcript.txt"
     transcript_path.write_text(transcript, encoding="utf-8")
+
+    # Observable marker so a silent whisper fallback is diagnosable (review finding #5).
+    _speakers = sorted({s.get("speaker") for s in segments if s.get("speaker")})
+    (output_dir / "transcription_info.json").write_text(json.dumps({
+        "diarization_applied": transcription.get("diarization_applied", False),
+        "model": settings.transcribe_model if settings.use_diarization else settings.whisper_model,
+        "n_segments": len(segments),
+        "speaker_count": len(_speakers),
+        "speakers": _speakers,
+    }, indent=2), encoding="utf-8")
+    log.info("Stage 1 done: diarization_applied=%s speakers=%d segments=%d",
+             transcription.get("diarization_applied", False), len(_speakers), len(segments))
 
     # Stage 2: Metadata
     if "metadata" in overrides:

@@ -21,7 +21,17 @@ class Settings(BaseSettings):
 
     max_file_size_mb: int = 100
     whisper_model: str = "whisper-1"
-    whisper_timeout: int = 600
+    whisper_timeout: int = 1200
+    # FEAT-AUDIO-DIARIZE-001: diarized stage-1 transcription (speaker attribution).
+    # Feature-flagged; on any diarize failure the transcriber falls back to whisper_model.
+    use_diarization: bool = True
+    transcribe_model: str = "gpt-4o-transcribe-diarize"
+    transcribe_response_format: str = "diarized_json"
+    transcribe_chunking_strategy: str = "auto"
+    transcribe_prompt: str = ""  # optional vocabulary/name hint passed to the model
+    # Full-file diarize rejects ~60-min sources (HTTP 400); chunk above this duration.
+    diarize_chunk_threshold_seconds: float = 480.0  # 8 min
+    diarize_chunk_seconds: int = 600  # 10 min WAV slices
     llm_model: str = "gpt-4o-mini"
     llm_timeout: int = 120
 
