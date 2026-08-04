@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     transcribe_response_format: str = "diarized_json"
     transcribe_chunking_strategy: str = "auto"
     transcribe_prompt: str = ""  # optional vocabulary/name hint passed to the model
+    # Full-file diarize rejects ~60-min sources (HTTP 400); chunk above this duration.
+    diarize_chunk_threshold_seconds: float = 480.0  # 8 min
+    diarize_chunk_seconds: int = 600  # 10 min WAV slices
     llm_model: str = "gpt-4o-mini"
     llm_timeout: int = 120
 

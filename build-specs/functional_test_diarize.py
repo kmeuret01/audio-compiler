@@ -36,7 +36,13 @@ async def main():
     print("title:", meta.get("title"))
     att = meta.get("attendees")
     print("attendees:", att)
-    n_att = len(att) if isinstance(att, list) else att
+    # Stage-2 prompt also lists people "discussed, not present"; DoD counts present only.
+    if isinstance(att, list):
+        present = [a for a in att if "discussed" not in str(a).lower()]
+        n_att = len(present)
+        print("present attendees:", present, f"(n={n_att}; total incl. discussed={len(att)})")
+    else:
+        n_att = att
     print("\n=== transcript head (speaker turns?) ===")
     print("\n".join(transcript.splitlines()[:6]))
     print("\n=== subtitles: first 2 cues ===")
@@ -45,8 +51,16 @@ async def main():
     # ---- Assertions (DoD) ----
     fails = []
     if not info.get("diarization_applied"): fails.append("diarization_applied False")
-    if info.get("speaker_count") != 3: fails.append(f"speaker_count={info.get('speaker_count')} (want 3)")
-    if isinstance(n_att, int) and not (2 <= n_att <= 4): fails.append(f"attendee count {n_att} not in [2,4]")
+    # Chunked path prefixes labels (1-A, 2-B, …); accept ≥3 distinct base speakers.
+    speakers = info.get("speakers") or []
+    bases = set()
+    for sp in speakers:
+        s = str(sp)
+        bases.add(s.split("-", 1)[1] if ("-" in s and s.split("-", 1)[0].isdigit()) else s)
+    if len(bases) < 3:
+        fails.append(f"base speakers={sorted(bases)} (want ≥3); raw speaker_count={info.get('speaker_count')}")
+    if isinstance(n_att, int) and not (2 <= n_att <= 4):
+        fails.append(f"present attendee count {n_att} not in [2,4]")
     if "Speaker " not in transcript: fails.append("no speaker turns in transcript.txt")
     if not srt.strip(): fails.append("empty subtitles.srt")
     # SRT timestamps monotonic

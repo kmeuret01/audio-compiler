@@ -12,12 +12,30 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings
-from app.services.transcription import _normalize_diarized_segments, transcribe
+from app.services.transcription import (
+    _base_speakers,
+    _normalize_diarized_segments,
+    _offset_chunk_segment,
+    transcribe,
+)
 from app.services.compiler import _build_labeled_transcript
 from app.services.template_subtitles import _build_cues
 
 
 # ---- Offline unit tests -----------------------------------------------------
+
+def test_offset_chunk_segment_prefixes_and_shifts():
+    out = _offset_chunk_segment(
+        {"start": 1.5, "end": 3.0, "text": "Hi", "speaker": "A"},
+        offset=600.0,
+        chunk_idx=2,
+    )
+    assert out == {"start": 601.5, "end": 603.0, "text": "Hi", "speaker": "2-A"}
+
+
+def test_base_speakers_strips_chunk_prefix():
+    assert _base_speakers({"1-A", "1-B", "2-A", "C"}) == {"A", "B", "C"}
+
 
 def test_normalize_diarized_segments_shape():
     raw = [
