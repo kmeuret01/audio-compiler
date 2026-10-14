@@ -302,6 +302,14 @@ async def _extract_report(transcript: str, settings: Settings) -> dict:
     return parsed
 
 
+DELIVERABLE_KEYS = ("meeting_notes_pdf", "transcript_pdf", "agent_ready_markdown")
+
+
+def _deliverables_manifest(output_result: dict) -> dict:
+    """The job's customer deliverables (persisted on the job row for consumers)."""
+    return {key: output_result[key] for key in DELIVERABLE_KEYS if output_result.get(key)}
+
+
 async def _stage_7_outputs(
     output_dir: Path,
     filename: str,
@@ -472,6 +480,7 @@ async def compile_audio(
         total_duration_ms=total_ms,
         output_dir=str(output_dir),
         audio_duration=transcription.get("duration_seconds", 0),
+        deliverables=_deliverables_manifest(output_result),
     )
 
     return {
