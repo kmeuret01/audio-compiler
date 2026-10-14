@@ -1,5 +1,7 @@
 """Job status and trace endpoints."""
 
+import json
+
 from fastapi import APIRouter, Depends, Request
 
 from app.auth import verify_token
@@ -13,7 +15,19 @@ async def get_job(job_id: str, request: Request, _token: str = Depends(verify_to
     job = db.get_job(job_id)
     if not job:
         return {"success": False, "error": {"code": "NOT_FOUND", "message": f"Job {job_id} not found"}}
+    job["deliverables"] = _parse_deliverables(job.get("deliverables"))
     return {"success": True, "job": job}
+
+
+def _parse_deliverables(raw: str | None) -> dict | None:
+    """The stored deliverables manifest as a dict; None when absent or malformed."""
+    if not raw:
+        return None
+    try:
+        manifest = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
 
 
 @router.get("/jobs/{job_id}/trace")

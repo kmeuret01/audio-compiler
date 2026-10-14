@@ -1,5 +1,6 @@
 """SQLite database for job tracking, stage tracing, and feedback."""
 
+import json
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -101,6 +102,8 @@ class Database:
             "notification_attempts": "INTEGER DEFAULT 0",
             "notification_error": "TEXT",
             "thread_id": "TEXT",
+            # Per-job deliverables manifest (JSON) — BUG-AUDIO-DELIVERY-CORRELATION-001
+            "deliverables": "TEXT",
         }
 
         for col_name, col_def in migrations.items():
@@ -143,10 +146,24 @@ class Database:
         )
         self._conn().commit()
 
-    def complete_job(self, job_id: str, total_duration_ms: int, output_dir: str = "", audio_duration: float = 0) -> None:
+    def complete_job(
+        self,
+        job_id: str,
+        total_duration_ms: int,
+        output_dir: str = "",
+        audio_duration: float = 0,
+        deliverables: Optional[dict] = None,
+    ) -> None:
+        """Mark a job completed.
+
+        deliverables is the job's own manifest of customer files (stored as JSON)
+        so consumers attach exactly this job's files instead of guessing.
+        """
+        manifest = json.dumps(deliverables) if deliverables else None
         self._conn().execute(
-            "UPDATE jobs SET status='completed', completed_at=?, total_duration_ms=?, output_dir=?, audio_duration_seconds=? WHERE job_id=?",
-            (_now(), total_duration_ms, output_dir, audio_duration, job_id),
+            "UPDATE jobs SET status='completed', completed_at=?, total_duration_ms=?, output_dir=?, "
+            "audio_duration_seconds=?, deliverables=? WHERE job_id=?",
+            (_now(), total_duration_ms, output_dir, audio_duration, manifest, job_id),
         )
         self._conn().commit()
 
