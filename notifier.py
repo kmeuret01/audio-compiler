@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -24,9 +25,25 @@ import time
 from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from app.services.deliverables import list_deliverable_files
+
 # Configuration
 POLL_INTERVAL_SECONDS = 30
 DB_PATH = os.environ.get("COMPILER_DB", "/home/clawdbot/audio-compiler/compiler.db")
+# Default on. Set PURGE_AFTER_SEND=0 to keep transcripts, deliverables, and audio after email.
+PURGE_AFTER_SEND = os.environ.get("PURGE_AFTER_SEND", "1").strip().lower() not in {"0", "false", "no", "off"}
+_PURGE_ROOTS = (
+    Path("/home/clawdbot/audio-compiler/output"),
+    Path("/home/clawdbot/audio-compiler/uploads"),
+    Path("/home/clawdbot/kevin/audio"),
+    Path("/home/clawdbot/audio-jobs"),
+    Path("/home/clawdbot/audio-results"),
+)
+_UPLOAD_ROOTS = (
+    Path("/home/clawdbot/kevin/audio"),
+    Path("/home/clawdbot/audio-jobs"),
+)
 GOG_BIN = os.environ.get("GOG_BIN", "/home/clawdbot/homebrew/bin/gog")
 GOG_ACCOUNT = os.environ.get("GOG_ACCOUNT", "rob@roilogistics.ai")
 LOG_FILE = os.environ.get("NOTIFIER_LOG", "/var/log/audio-notifier.log")
@@ -91,7 +108,7 @@ def get_pending_notifications(db_path: str, limit: int = 10) -> list:
     conn = _wal_connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("""
-        SELECT job_id, output_dir, submitter_email, submitter_name, thread_id
+        SELECT job_id, output_dir, audio_path, submitter_email, submitter_name, thread_id
         FROM jobs
         WHERE status = 'completed'
           AND notification_status = 'pending'
@@ -110,7 +127,7 @@ def get_failed_jobs_for_notification(db_path: str, limit: int = 10) -> list:
     conn = _wal_connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("""
-        SELECT job_id, error, submitter_email, submitter_name, thread_id
+        SELECT job_id, output_dir, audio_path, error, submitter_email, submitter_name, thread_id
         FROM jobs
         WHERE status = 'failed'
           AND notification_status = 'pending'
@@ -122,6 +139,67 @@ def get_failed_jobs_for_notification(db_path: str, limit: int = 10) -> list:
     results = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return results
+
+
+def _under_root(path: Path, root: Path) -> bool:
+    """True when path is a real child of root, never the root itself."""
+    try:
+        resolved = path.resolve()
+        root_resolved = root.resolve()
+    except OSError:
+        return False
+    if resolved == root_resolved:
+        return False
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        return False
+    return True
+
+
+def _allowed(path: Path) -> bool:
+    return any(_under_root(path, root) for root in _PURGE_ROOTS)
+
+
+def purge_job_files(job: dict, log: logging.Logger) -> None:
+    """Delete this job's transcript pack and source audio after a successful send."""
+    if not PURGE_AFTER_SEND:
+        log.info("Job %s: purge skipped (PURGE_AFTER_SEND is off)", job.get("job_id"))
+        return
+
+    job_id = job.get("job_id")
+    removed = []
+
+    output_dir = Path(job["output_dir"]) if job.get("output_dir") else None
+    if output_dir and output_dir.exists() and _allowed(output_dir):
+        import shutil
+        shutil.rmtree(output_dir)
+        removed.append(str(output_dir))
+
+    audio_raw = job.get("audio_path") or ""
+    if audio_raw and not audio_raw.startswith("transcript://"):
+        audio_path = Path(audio_raw)
+        parent = audio_path.parent
+        upload_folder = False
+        for root in _UPLOAD_ROOTS:
+            try:
+                if parent.resolve().parent == root.resolve() and _under_root(parent, root):
+                    upload_folder = True
+                    break
+            except OSError:
+                continue
+        if upload_folder and parent.exists():
+            import shutil
+            shutil.rmtree(parent)
+            removed.append(str(parent))
+        elif audio_path.is_file() and _allowed(audio_path):
+            audio_path.unlink()
+            removed.append(str(audio_path))
+
+    if removed:
+        log.info("Job %s: purged after send: %s", job_id, ", ".join(removed))
+    else:
+        log.info("Job %s: nothing left to purge", job_id)
 
 
 def mark_notification_sent(db_path: str, job_id: str) -> None:
@@ -155,30 +233,53 @@ def mark_notification_failed(db_path: str, job_id: str, error: str) -> None:
 def build_completion_email_body(job: dict, output_dir: Path) -> str:
     """Build the HTML email body for a completed job."""
     name = job.get("submitter_name") or "there"
+    deliverables = list_deliverable_files(output_dir)
+    if deliverables:
+        title = _report_title(output_dir)
+        heading = f"Notes for {title} are ready." if title else "Your meeting notes are ready."
+        return f"""<html>
+<body style="font-family: Georgia, 'Times New Roman', serif; color: #2D2926;">
+<p>Hi {name},</p>
+<p>{heading} Three files are attached:</p>
+<ul>
+<li><strong>Meeting notes</strong> — printable PDF</li>
+<li><strong>Transcript</strong> — full transcript, simple PDF</li>
+<li><strong>Agent-ready markdown</strong> — notes plus the full transcript, for any agent to post</li>
+</ul>
+<p style="color: #9B9590;">goailabs.ai · Confidential</p>
+<p style="color: #666;">— Rob</p>
+</body>
+</html>"""
 
-    # Try to read email_body.html if it exists
     email_body_path = output_dir / "email_body.html"
     if email_body_path.exists():
         return email_body_path.read_text(encoding="utf-8")
 
-    # Fallback: build simple completion message
     return f"""<html>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333;">
+<body style="font-family: Georgia, 'Times New Roman', serif; color: #2D2926;">
 <p>Hi {name},</p>
-
-<p>Your meeting debrief is ready. I've attached the documents:</p>
-
-<ul>
-<li><strong>Executive Brief</strong> - One-page summary for quick review</li>
-<li><strong>Full Debrief</strong> - Complete notes with all details</li>
-<li><strong>Transcript</strong> - Full transcription of the audio</li>
-</ul>
-
-<p>Let me know if you need any changes.</p>
-
+<p>Your meeting notes are ready. The files are attached.</p>
+<p style="color: #9B9590;">goailabs.ai · Confidential</p>
 <p style="color: #666;">— Rob</p>
 </body>
 </html>"""
+
+
+def _completion_subject(output_dir: Path) -> str:
+    title = _report_title(output_dir)
+    if title:
+        return f"Meeting notes ready — {title}"
+    return "Meeting notes ready"
+
+
+def _report_title(output_dir: Path) -> str:
+    path = output_dir / "report.json"
+    if not path.exists():
+        return ""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("title") or ""
+    except (json.JSONDecodeError, OSError):
+        return ""
 
 
 def build_failure_email_body(job: dict) -> str:
@@ -224,21 +325,17 @@ def send_completion_email(
     # Build email body
     email_body = build_completion_email_body(job, output_dir)
 
-    # Collect attachments (PDFs and DOCX)
-    attachments = []
-    for pattern in ["*.pdf", "*.docx"]:
-        attachments.extend(output_dir.glob(pattern))
-
-    # Filter to expected files
-    expected_names = [
-        "executive_brief.pdf",
-        "full_debrief.docx",
-        "transcript.pdf",
-    ]
-    attachments = [
-        a for a in attachments
-        if a.name in expected_names
-    ]
+    attachments = list_deliverable_files(output_dir)
+    if not attachments:
+        expected_names = [
+            "executive_brief.pdf",
+            "full_debrief.docx",
+            "transcript.pdf",
+        ]
+        attachments = [
+            path for path in output_dir.glob("*")
+            if path.name in expected_names
+        ]
 
     log.info("Job %s: sending to %s with %d attachments", job_id, email, len(attachments))
 
@@ -250,7 +347,7 @@ def send_completion_email(
     cmd = [
         GOG_BIN, "gmail", "send",
         "--to", email,
-        "--subject", "Your Meeting Debrief is Ready",
+        "--subject", _completion_subject(output_dir),
         "--body-html", email_body,
         "--account", GOG_ACCOUNT,
         "--no-input",
@@ -359,6 +456,7 @@ def poll_once(db_path: str, log: logging.Logger, dry_run: bool = False) -> int:
         if not dry_run:
             if success:
                 mark_notification_sent(db_path, job_id)
+                purge_job_files(job, log)
                 sent_count += 1
             else:
                 mark_notification_failed(db_path, job_id, "Email send failed")
@@ -375,6 +473,7 @@ def poll_once(db_path: str, log: logging.Logger, dry_run: bool = False) -> int:
         if not dry_run:
             if success:
                 mark_notification_sent(db_path, job_id)
+                purge_job_files(job, log)
                 sent_count += 1
             else:
                 mark_notification_failed(db_path, job_id, "Email send failed")
@@ -397,6 +496,7 @@ def main():
     log.info("Poll interval: %ds", args.interval)
     log.info("gog binary: %s", GOG_BIN)
     log.info("Account: %s", GOG_ACCOUNT)
+    log.info("Purge after send: %s", "on" if PURGE_AFTER_SEND else "off")
 
     if not Path(args.db).exists():
         log.error("Database not found: %s", args.db)

@@ -15,7 +15,14 @@ from app.config import Settings
 from app.database import Database
 from app.tracing import run_stage
 from app.services.transcription import transcribe
-from app.services.output_generator import generate_all_outputs
+from app.services.deliverables import (
+    REPORT_SYSTEM,
+    assemble_report,
+    cues_from_segments,
+    parse_report_json,
+    report_user_content,
+    write_deliverables,
+)
 
 import logging
 
@@ -282,6 +289,19 @@ Please review these against meeting documentation best practices."""
     return {"text": result["text"], "usage": result["usage"]}
 
 
+async def _extract_report(transcript: str, settings: Settings) -> dict:
+    """One structured record for the three customer files."""
+    result = await _call_openai(
+        REPORT_SYSTEM,
+        report_user_content(transcript),
+        settings,
+        max_tokens=3000,
+    )
+    parsed = parse_report_json(result["text"])
+    parsed["usage"] = result["usage"]
+    return parsed
+
+
 async def _stage_7_outputs(
     output_dir: Path,
     filename: str,
@@ -292,31 +312,26 @@ async def _stage_7_outputs(
     metadata: dict,
     segments: list = None,
     tier: str = "advanced",
+    job_id: str = "",
+    duration_seconds: float = 0,
+    settings: Settings = None,
 ) -> dict:
-    """Stage 7: Generate AI Labs branded outputs (PDFs, DOCX, email HTML)."""
-    # Add source filename to metadata
-    metadata_with_source = {**metadata, 'source_filename': filename}
-
-    outputs = generate_all_outputs(
-        job_id="",  # Not needed for output generation
-        output_dir=str(output_dir),
-        compilation_data={
-            'transcript': transcript,
-            'segments': segments or [],
-            'metadata': metadata_with_source,
-            'meeting_notes': notes,
-            'action_items': action_items,
-            'executive_summary': summary,
-        },
-        tier=tier,
+    """Stage 7: meeting notes PDF, transcript PDF, agent-ready markdown."""
+    del notes, tier  # retained in the signature so older callers still match
+    extracted = await _extract_report(transcript, settings)
+    usage = extracted.pop("usage", {})
+    report = assemble_report(
+        extracted,
+        metadata,
+        filename,
+        duration_seconds,
+        summary=summary,
+        action_items=action_items,
     )
-
-    return {
-        "executive_brief_pdf": outputs.get('executive_brief_pdf'),
-        "full_debrief_docx": outputs.get('full_debrief_docx'),
-        "transcript_pdf": outputs.get('transcript_pdf'),
-        "email_body_html": outputs.get('email_body_html'),
-    }
+    cues = cues_from_segments(segments or [])
+    paths = write_deliverables(output_dir, report, cues, job_id)
+    paths["usage"] = usage
+    return paths
 
 
 # ── Main Pipeline ────────────────────────────────────────────────────
@@ -442,11 +457,12 @@ async def compile_audio(
     review_path = output_dir / "quality_review.json"
     review_path.write_text(json.dumps({"review": review}, indent=2), encoding="utf-8")
 
-    # Stage 7: AI Labs branded outputs (PDFs, DOCX, email HTML)
+    # Stage 7: meeting notes PDF, transcript PDF, agent-ready markdown
     tier = overrides.get("tier", "advanced")
     output_result = await run_stage(
         job_id, "stage_7_outputs", db, _stage_7_outputs,
         output_dir, filename, notes, action_items, transcript, summary, metadata_clean, segments, tier,
+        job_id, transcription.get("duration_seconds", 0) or 0, settings,
         input_summary=f"Generating outputs (tier={tier})",
     )
 
@@ -470,16 +486,11 @@ async def compile_audio(
             "action_items": str(items_path),
             "summary": str(summary_path),
             "quality_review": str(review_path),
-            "executive_brief_pdf": output_result.get("executive_brief_pdf"),
-            "full_debrief_docx": output_result.get("full_debrief_docx"),
+            "meeting_notes_pdf": output_result.get("meeting_notes_pdf"),
             "transcript_pdf": output_result.get("transcript_pdf"),
-            "subtitles_srt": output_result.get("subtitles_srt"),
-            "subtitles_vtt": output_result.get("subtitles_vtt"),
-            "notion_export": output_result.get("notion_export"),
-            "confluence_export": output_result.get("confluence_export"),
+            "agent_ready_markdown": output_result.get("agent_ready_markdown"),
         },
         "tier": tier,
         "summary_text": summary,
-        "email_body_html": output_result.get("email_body_html"),
         "metadata": metadata_clean,
     }

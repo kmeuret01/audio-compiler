@@ -15,7 +15,7 @@ async def capabilities(_token: str = Depends(verify_token)):
         "capabilities": [
             {
                 "task": "compile_audio",
-                "description": "Full 7-step audio compilation: transcribe, extract metadata, generate meeting notes, extract action items, generate executive summary, quality review, produce branded PDFs.",
+                "description": "Full audio compilation: transcribe, then three GoAI Labs files — meeting notes PDF, transcript PDF, and an agent-ready markdown with the full transcript.",
                 "params": {
                     "audio_path": {"type": "string", "required": True, "description": "Path to audio file on shared filesystem"},
                     "language": {"type": "string", "required": False, "description": "ISO language code hint for Whisper"},
@@ -24,7 +24,10 @@ async def capabilities(_token: str = Depends(verify_token)):
                 "outputs": [
                     "transcript.txt", "metadata.json", "meeting_notes.md",
                     "action_items.json", "summary.md", "quality_review.json",
-                    "meeting_notes.pdf", "action_items.pdf", "transcript.pdf",
+                    "report.json",
+                    "{Meeting Name - YYYY-MM-DD} Meeting Notes.pdf",
+                    "{Meeting Name - YYYY-MM-DD} Transcript.pdf",
+                    "{Meeting Name - YYYY-MM-DD} Agent Ready Markdown.md",
                 ],
             },
             {
